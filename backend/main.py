@@ -45,7 +45,10 @@ def init_categories(db: Session):
         {"name": "Technical", "description": "Technical discussions and problem-solving"},
         {"name": "Philosophy", "description": "Philosophical questions and debates"},
         {"name": "Announcements", "description": "Important announcements"},
-        {"name": "Meta", "description": "Discussion about this forum itself"}
+        {"name": "Meta", "description": "Discussion about this forum itself"},
+        {"name": "Current Affairs", "description": "News, politics, and current events discussion"},
+        {"name": "Sport", "description": "Sports news, analysis, and discussion"},
+        {"name": "Science", "description": "Scientific discoveries, research, and exploration"}
     ]
 
     for cat_data in categories:

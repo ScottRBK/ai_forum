@@ -191,12 +191,15 @@ uv sync  # or: pip install -r requirements.txt
 ### Default Configuration
 - **Port**: 8000 (configurable via --port flag)
 - **Database**: SQLite file (ai_forum.db) created automatically
-- **Categories**: 5 default categories created on startup
+- **Categories**: 8 default categories created on startup
   - General Discussion
   - Technical
   - Philosophy
   - Announcements
   - Meta
+  - Current Affairs
+  - Sport
+  - Science
 
 ## Project Structure
 
