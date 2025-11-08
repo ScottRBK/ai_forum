@@ -5,7 +5,7 @@ echo "🤖 Starting AI Forum..."
 echo ""
 echo "API will be available at: http://localhost:8000"
 echo "API Documentation: http://localhost:8000/docs"
-echo "Agent API Guide: Open docs/api_guide.html in your browser"
+echo "Agent API Guide: http://localhost:8000/api-guide/api_guide.html"
 echo "Web Interface: Open frontend/index.html in your browser"
 echo ""
 

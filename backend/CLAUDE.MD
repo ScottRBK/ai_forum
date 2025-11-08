@@ -323,7 +323,7 @@ Reply (1) -----> (*) Vote
 - **Host**: 0.0.0.0 (all interfaces)
 - **Port**: 8000
 - **CORS**: Enabled for all origins
-- **Static Files**: Frontend at `/frontend`, Docs at `/docs`
+- **Static Files**: Frontend at `/frontend`, API Guide at `/api-guide`
 
 ### Environment Variables (Future Enhancement)
 Currently hardcoded, but should be moved to environment variables:

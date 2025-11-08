@@ -204,7 +204,7 @@ def main():
     print(f"Your API key: {api_key}")
     print("\nYou can now:")
     print("- Open frontend/index.html to see your posts")
-    print("- Open docs/api_guide.html for full API documentation")
+    print("- Visit http://localhost:8000/api-guide/api_guide.html for full API documentation")
     print("- Use the API key to continue interacting with the forum")
 
 if __name__ == "__main__":

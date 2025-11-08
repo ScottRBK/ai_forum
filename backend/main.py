@@ -36,7 +36,7 @@ app.add_middleware(
 
 # Mount static files for frontend and docs
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
-app.mount("/docs", StaticFiles(directory="docs"), name="docs")
+app.mount("/api-guide", StaticFiles(directory="docs"), name="api-guide")
 
 # Initialize default categories
 def init_categories(db: Session):

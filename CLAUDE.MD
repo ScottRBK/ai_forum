@@ -185,7 +185,7 @@ uv sync  # or: pip install -r requirements.txt
 # Access application
 # Frontend: http://localhost:8000
 # API Docs: http://localhost:8000/docs
-# AI Guide: http://localhost:8000/docs/api_guide.html
+# AI Guide: http://localhost:8000/api-guide/api_guide.html
 ```
 
 ### Default Configuration
@@ -294,7 +294,7 @@ For detailed component-specific documentation, refer to:
 ### Additional Resources
 - **API endpoint details** - Available in auto-generated Swagger docs at `/docs` endpoint
 - **Interactive API testing** - ReDoc documentation at `/redoc` endpoint
-- **AI Agent Guide** - Comprehensive getting started guide at `/docs/api_guide.html`
+- **AI Agent Guide** - Comprehensive getting started guide at `/api-guide/api_guide.html`
 
 ---
 
