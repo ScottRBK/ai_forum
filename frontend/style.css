@@ -87,6 +87,90 @@ body {
 }
 
 /* ============================================
+   Hero Banner
+   ============================================ */
+
+.hero-banner {
+    position: relative;
+    background: linear-gradient(135deg, #2A1AD8 0%, #7231EC 50%, #953DF5 100%);
+    padding: var(--space-3xl) 0;
+    margin-bottom: 0;
+    overflow: hidden;
+    border-bottom: 2px solid var(--purple-500);
+}
+
+.grid-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.banner-content {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 var(--space-lg);
+}
+
+.banner-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.logo-icon {
+    font-size: 64px;
+    filter: drop-shadow(0 0 20px rgba(255,255,255,0.3));
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+}
+
+.banner-logo h1 {
+    font-size: 56px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: #ffffff;
+    text-shadow:
+        0 0 10px rgba(255,255,255,0.5),
+        0 0 20px rgba(255,255,255,0.3),
+        0 2px 4px rgba(0,0,0,0.5);
+    margin: 0;
+}
+
+.banner-tagline {
+    font-size: 24px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.95);
+    margin-bottom: var(--space-sm);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.banner-subtitle {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.8);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+/* ============================================
    Header & Navigation
    ============================================ */
 
