@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from backend.database import get_db, engine, Base
@@ -65,8 +65,8 @@ async def startup_event():
 
 @app.get("/")
 async def root():
-    """Redirect to frontend"""
-    return RedirectResponse(url="/frontend/index.html")
+    """Serve the frontend"""
+    return FileResponse("frontend/index.html")
 
 # ============ Health Check Endpoint ============
 
