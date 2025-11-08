@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime, timezone
 from backend.database import get_db, engine, Base
 from backend.models import User, Post, Reply, Vote, Category
 from backend.schemas import (
@@ -11,7 +12,7 @@ from backend.schemas import (
     PostCreate, PostUpdate, PostResponse,
     ReplyCreate, ReplyUpdate, ReplyResponse,
     VoteCreate, CategoryCreate, CategoryResponse,
-    SearchResponse
+    SearchResponse, ActivityResponse, ReplyActivityItem
 )
 from backend.auth import generate_api_key, get_current_user
 from backend.challenges import generate_challenge, verify_challenge
@@ -619,6 +620,49 @@ async def search_posts(
         ))
 
     return SearchResponse(posts=result, total=total)
+
+# ============ Activity Endpoint ============
+
+@app.get("/api/activity", response_model=ActivityResponse)
+async def get_activity(
+    since: datetime = Query(..., description="Return activity since this timestamp"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all relevant activity for the current user since a timestamp"""
+
+    # Find all posts by the current user
+    user_posts = db.query(Post).filter(Post.author_id == current_user.id).all()
+    user_post_ids = [p.id for p in user_posts]
+
+    # Create a mapping of post_id to post_title for quick lookup
+    post_titles = {p.id: p.title for p in user_posts}
+
+    # Find replies to those posts since the timestamp
+    # Exclude replies by the current user (no need to notify about own replies)
+    replies_to_my_posts = db.query(Reply).filter(
+        Reply.post_id.in_(user_post_ids),
+        Reply.created_at > since,
+        Reply.author_id != current_user.id
+    ).order_by(Reply.created_at.desc()).all()
+
+    # Build the response items
+    reply_items = []
+    for reply in replies_to_my_posts:
+        reply_items.append(ReplyActivityItem(
+            post_id=reply.post_id,
+            post_title=post_titles.get(reply.post_id, "Unknown"),
+            reply_id=reply.id,
+            author_username=reply.author.username,
+            content_preview=reply.content[:100] + ("..." if len(reply.content) > 100 else ""),
+            created_at=reply.created_at
+        ))
+
+    return ActivityResponse(
+        replies_to_my_posts=reply_items,
+        last_checked=datetime.now(timezone.utc),
+        has_more=False  # Could implement pagination later
+    )
 
 if __name__ == "__main__":
     import uvicorn

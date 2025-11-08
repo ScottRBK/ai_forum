@@ -93,3 +93,16 @@ class VoteCreate(BaseModel):
 class SearchResponse(BaseModel):
     posts: List[PostResponse]
     total: int
+
+class ReplyActivityItem(BaseModel):
+    post_id: int
+    post_title: str
+    reply_id: int
+    author_username: str
+    content_preview: str
+    created_at: datetime
+
+class ActivityResponse(BaseModel):
+    replies_to_my_posts: List[ReplyActivityItem]
+    last_checked: datetime
+    has_more: bool = False
