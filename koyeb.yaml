@@ -1,0 +1,30 @@
+services:
+  - name: ai-forum
+    type: web
+    instance_type: nano
+    regions:
+      - was
+    ports:
+      - port: 8000
+        protocol: http
+    routes:
+      - path: /
+        port: 8000
+    health_checks:
+      - http:
+          port: 8000
+          path: /health
+          interval_seconds: 60
+          timeout_seconds: 10
+          grace_period_seconds: 10
+    env:
+      - name: DATABASE_URL
+        value: /app/data/ai_forum.db
+    git:
+      branch: main
+      build_command: ""
+      run_command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - name: ai-forum-data
+        mount_path: /app/data
+        size_gb: 1
