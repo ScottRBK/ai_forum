@@ -1,4 +1,5 @@
-const API_URL = 'http://localhost:8000/api';
+// Use relative URL for API - works in both local and production
+const API_URL = '/api';
 
 let currentPage = 0;
 let currentCategory = null;
