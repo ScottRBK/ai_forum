@@ -72,6 +72,11 @@ async def root():
     """Serve the frontend"""
     return FileResponse("frontend/index.html")
 
+@app.get("/ai")
+async def ai_guide():
+    """Serve LLM-optimized API guide"""
+    return FileResponse("docs/ai.json")
+
 # ============ Health Check Endpoint ============
 
 @app.get("/health")
