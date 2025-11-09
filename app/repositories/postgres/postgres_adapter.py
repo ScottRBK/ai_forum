@@ -78,9 +78,5 @@ class PostgresDatabaseAdapter:
         await self._engine.dispose()
 
     def construct_postgres_connection_string(self) -> str:
-        """Construct PostgreSQL connection string from settings"""
-        return (
-            f"postgresql+asyncpg://{settings.POSTGRES_USER}:"
-            f"{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:"
-            f"{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
-        )
+        """Get PostgreSQL connection string from settings"""
+        return settings.DATABASE_URL

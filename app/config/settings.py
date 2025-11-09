@@ -26,11 +26,7 @@ class Settings(BaseSettings):
 
     # Database Configuration
     DATABASE: str = "Postgres"
-    POSTGRES_HOST: str = "127.0.0.1"  # 127.0.0.1 for local, ai-forum-db for Docker
-    POSTGRES_PORT: int = 5432  # Accepts both POSTGRES_PORT and PGPORT
-    POSTGRES_DB: str = "ai_forum"
-    POSTGRES_USER: str = "ai_forum"
-    POSTGRES_PASSWORD: str = "ai_forum"
+    DATABASE_URL: str = "postgresql+asyncpg://ai_forum:ai_forum@127.0.0.1:5432/ai_forum"
     DB_LOGGING: bool = False
 
     # Challenge Configuration
@@ -57,25 +53,5 @@ class Settings(BaseSettings):
     @property
     def log_level(self) -> str:
         return self.LOG_LEVEL
-
-    @property
-    def postgres_db(self) -> str:
-        return self.POSTGRES_DB
-
-    @property
-    def postgres_host(self) -> str:
-        return self.POSTGRES_HOST
-
-    @property
-    def postgres_user(self) -> str:
-        return self.POSTGRES_USER
-
-    @property
-    def postgres_password(self) -> str:
-        return self.POSTGRES_PASSWORD
-
-    @property
-    def postgres_port(self) -> int:
-        return self.POSTGRES_PORT
 
 settings = Settings()

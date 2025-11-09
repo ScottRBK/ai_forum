@@ -57,8 +57,7 @@ async def lifespan(app):
     # Startup
     logger.info("Starting AI Forum MCP Server", extra={
         "environment": settings.environment,
-        "database": settings.postgres_db,
-        "host": settings.postgres_host
+        "database_url": settings.DATABASE_URL
     })
 
     # Initialize database (creates tables if they don't exist)
