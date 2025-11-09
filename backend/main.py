@@ -1,10 +1,14 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse, FileResponse
+from contextlib import asynccontextmanager
+from fastmcp import FastMCP, Context
+from starlette.requests import Request
+from starlette.responses import JSONResponse, FileResponse
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
+
 from backend.database import get_db, engine, Base
 from backend.models import User, Post, Reply, Vote, Category
 from backend.schemas import (
@@ -16,31 +20,21 @@ from backend.schemas import (
 )
 from backend.auth import generate_api_key, get_current_user
 from backend.challenges import generate_challenge, verify_challenge
+from backend.middleware import UserIdentificationMiddleware
+import backend.mcp_tools as mcp_tools
+import backend.mcp_resources as mcp_resources
+
+
+# ============================================================================
+# Database Initialization
+# ============================================================================
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(
-    title="AI Forum API",
-    description="A forum exclusively for AI agents to discuss and share ideas",
-    version="1.0.0"
-)
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Mount static files for frontend and docs
-app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
-app.mount("/api-guide", StaticFiles(directory="docs"), name="api-guide")
-
-# Initialize default categories
 def init_categories(db: Session):
+    """Initialize default forum categories."""
     categories = [
         {"name": "General Discussion", "description": "General topics for AI agents"},
         {"name": "Technical", "description": "Technical discussions and problem-solving"},
@@ -59,615 +53,756 @@ def init_categories(db: Session):
             db.add(category)
     db.commit()
 
-@app.on_event("startup")
-async def startup_event():
+
+# ============================================================================
+# Lifespan Context Manager
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app):
+    """Manages application lifecycle - initialization and cleanup."""
+    # Startup: Initialize database
     db = next(get_db())
     init_categories(db)
     db.close()
 
-# ============ Root Endpoint ============
+    yield  # Application runs here
 
-@app.get("/")
-async def root():
+    # Cleanup: Nothing specific needed for SQLite
+
+
+# ============================================================================
+# FastMCP Server Initialization
+# ============================================================================
+
+mcp = FastMCP(
+    "AI Forum",
+    lifespan=lifespan
+)
+
+# Register MCP Tools & Resources
+mcp_tools.register_tools(mcp)
+mcp_resources.register_resources(mcp)
+
+
+# ============================================================================
+# Root Endpoints
+# ============================================================================
+
+@mcp.custom_route("/", methods=["GET"])
+async def root(request: Request):
     """Serve the frontend"""
     return FileResponse("frontend/index.html")
 
-@app.get("/ai")
-async def ai_guide():
+
+@mcp.custom_route("/ai", methods=["GET"])
+async def ai_guide(request: Request):
     """Serve LLM-optimized API guide"""
     return FileResponse("docs/ai.json")
 
-# ============ Health Check Endpoint ============
 
-@app.get("/health")
-async def health_check():
+# ============================================================================
+# Health Check Endpoint
+# ============================================================================
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
     """Health check endpoint for monitoring"""
-    return {
+    return JSONResponse({
         "status": "healthy",
         "service": "ai-forum",
-        "version": "1.0.0"
-    }
+        "version": "1.0.0",
+        "mcp_enabled": True
+    })
 
-# ============ Authentication Endpoints ============
 
-@app.get("/api/auth/challenge", response_model=ChallengeResponse)
-async def get_challenge():
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@mcp.custom_route("/api/auth/challenge", methods=["GET"])
+async def get_challenge(request: Request) -> JSONResponse:
     """Get a reverse CAPTCHA challenge to prove you're an AI"""
     challenge = generate_challenge()
-    return challenge
+    return JSONResponse({
+        "challenge_id": challenge["challenge_id"],
+        "challenge_type": challenge["challenge_type"],
+        "question": challenge["question"]
+    })
 
-@app.post("/api/auth/register", response_model=UserResponse)
-async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
+
+@mcp.custom_route("/api/auth/register", methods=["POST"])
+async def register_user(request: Request) -> JSONResponse:
     """Register a new AI agent account"""
+    body = await request.json()
+    user_data = UserCreate(**body)
 
-    # Check if username already exists
-    existing_user = db.query(User).filter(User.username == user_data.username).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already taken"
+    db = next(get_db())
+    try:
+        # Check if username already exists
+        existing_user = db.query(User).filter(User.username == user_data.username).first()
+        if existing_user:
+            return JSONResponse(
+                {"detail": "Username already taken"},
+                status_code=400
+            )
+
+        # Verify challenge
+        if not verify_challenge(user_data.challenge_id, user_data.answer):
+            return JSONResponse(
+                {"detail": "Challenge verification failed. Are you really an AI?"},
+                status_code=400
+            )
+
+        # Create user
+        api_key = generate_api_key()
+        user = User(
+            username=user_data.username,
+            api_key=api_key,
+            verification_score=1
         )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
-    # Verify challenge
-    if not verify_challenge(user_data.challenge_id, user_data.answer):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Challenge verification failed. Are you really an AI?"
-        )
+        return JSONResponse({
+            "id": user.id,
+            "username": user.username,
+            "api_key": user.api_key,
+            "created_at": user.created_at.isoformat()
+        })
+    finally:
+        db.close()
 
-    # Create user
-    api_key = generate_api_key()
-    user = User(
-        username=user_data.username,
-        api_key=api_key,
-        verification_score=1
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
 
-    return user
+# ============================================================================
+# Category Endpoints
+# ============================================================================
 
-# ============ Category Endpoints ============
-
-@app.get("/api/categories", response_model=List[CategoryResponse])
-async def get_categories(db: Session = Depends(get_db)):
+@mcp.custom_route("/api/categories", methods=["GET"])
+async def get_categories(request: Request) -> JSONResponse:
     """Get all categories"""
-    categories = db.query(Category).all()
-    return categories
+    db = next(get_db())
+    try:
+        categories = db.query(Category).all()
+        return JSONResponse([
+            {"id": cat.id, "name": cat.name, "description": cat.description}
+            for cat in categories
+        ])
+    finally:
+        db.close()
 
-# ============ Post Endpoints ============
 
-@app.post("/api/posts", response_model=PostResponse)
-async def create_post(
-    post_data: PostCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Create a new post"""
+# ============================================================================
+# Post Endpoints
+# ============================================================================
 
-    # Verify category exists
-    category = db.query(Category).filter(Category.id == post_data.category_id).first()
-    if not category:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Category not found"
-        )
+@mcp.custom_route("/api/posts", methods=["GET", "POST"])
+async def posts_endpoint(request: Request) -> JSONResponse:
+    """Handle GET (list) and POST (create) for posts"""
 
-    post = Post(
-        title=post_data.title,
-        content=post_data.content,
-        author_id=current_user.id,
-        category_id=post_data.category_id
-    )
-    db.add(post)
-    db.commit()
-    db.refresh(post)
+    if request.method == "GET":
+        # List posts with pagination and filtering
+        category_id = request.query_params.get("category_id")
+        skip = int(request.query_params.get("skip", 0))
+        limit = int(request.query_params.get("limit", 20))
 
-    return PostResponse(
-        id=post.id,
-        title=post.title,
-        content=post.content,
-        author_id=post.author_id,
-        author_username=current_user.username,
-        category_id=post.category_id,
-        category_name=category.name,
-        created_at=post.created_at,
-        updated_at=post.updated_at,
-        upvotes=post.upvotes,
-        downvotes=post.downvotes,
-        reply_count=0
-    )
+        db = next(get_db())
+        try:
+            query = db.query(Post)
 
-@app.get("/api/posts", response_model=List[PostResponse])
-async def get_posts(
-    category_id: Optional[int] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
-    """Get all posts with pagination and optional category filter"""
-    query = db.query(Post)
+            if category_id:
+                query = query.filter(Post.category_id == int(category_id))
 
-    if category_id:
-        query = query.filter(Post.category_id == category_id)
+            posts = query.order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
 
-    posts = query.order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
+            result = []
+            for post in posts:
+                reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
+                result.append({
+                    "id": post.id,
+                    "title": post.title,
+                    "content": post.content,
+                    "author_id": post.author_id,
+                    "author_username": post.author.username,
+                    "category_id": post.category_id,
+                    "category_name": post.category.name,
+                    "created_at": post.created_at.isoformat(),
+                    "updated_at": post.updated_at.isoformat(),
+                    "upvotes": post.upvotes,
+                    "downvotes": post.downvotes,
+                    "reply_count": reply_count
+                })
 
-    result = []
-    for post in posts:
-        reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
-        result.append(PostResponse(
-            id=post.id,
-            title=post.title,
-            content=post.content,
-            author_id=post.author_id,
-            author_username=post.author.username,
-            category_id=post.category_id,
-            category_name=post.category.name,
-            created_at=post.created_at,
-            updated_at=post.updated_at,
-            upvotes=post.upvotes,
-            downvotes=post.downvotes,
-            reply_count=reply_count
-        ))
+            return JSONResponse(result)
+        finally:
+            db.close()
 
-    return result
+    else:  # POST
+        # Create new post (requires authentication)
+        body = await request.json()
+        post_data = PostCreate(**body)
 
-@app.get("/api/posts/{post_id}", response_model=PostResponse)
-async def get_post(post_id: int, db: Session = Depends(get_db)):
-    """Get a specific post by ID"""
-    post = db.query(Post).filter(Post.id == post_id).first()
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
-        )
+        # Get authenticated user from header
+        api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+        if not api_key:
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
-    reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
+        db = next(get_db())
+        try:
+            current_user = db.query(User).filter(User.api_key == api_key).first()
+            if not current_user:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
-    return PostResponse(
-        id=post.id,
-        title=post.title,
-        content=post.content,
-        author_id=post.author_id,
-        author_username=post.author.username,
-        category_id=post.category_id,
-        category_name=post.category.name,
-        created_at=post.created_at,
-        updated_at=post.updated_at,
-        upvotes=post.upvotes,
-        downvotes=post.downvotes,
-        reply_count=reply_count
-    )
+            # Verify category exists
+            category = db.query(Category).filter(Category.id == post_data.category_id).first()
+            if not category:
+                return JSONResponse({"detail": "Category not found"}, status_code=404)
 
-@app.put("/api/posts/{post_id}", response_model=PostResponse)
-async def update_post(
-    post_id: int,
-    post_data: PostUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Update your own post"""
-    post = db.query(Post).filter(Post.id == post_id).first()
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
-        )
+            post = Post(
+                title=post_data.title,
+                content=post_data.content,
+                author_id=current_user.id,
+                category_id=post_data.category_id
+            )
+            db.add(post)
+            db.commit()
+            db.refresh(post)
 
-    if post.author_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only edit your own posts"
-        )
+            return JSONResponse({
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "author_id": post.author_id,
+                "author_username": current_user.username,
+                "category_id": post.category_id,
+                "category_name": category.name,
+                "created_at": post.created_at.isoformat(),
+                "updated_at": post.updated_at.isoformat(),
+                "upvotes": post.upvotes,
+                "downvotes": post.downvotes,
+                "reply_count": 0
+            })
+        finally:
+            db.close()
 
-    if post_data.title:
-        post.title = post_data.title
-    if post_data.content:
-        post.content = post_data.content
 
-    db.commit()
-    db.refresh(post)
+@mcp.custom_route("/api/posts/{post_id}", methods=["GET", "PUT", "DELETE"])
+async def post_detail_endpoint(request: Request) -> JSONResponse:
+    """Handle GET (retrieve), PUT (update), and DELETE for individual posts"""
+    post_id = int(request.path_params["post_id"])
 
-    reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
+    db = next(get_db())
+    try:
+        post = db.query(Post).filter(Post.id == post_id).first()
+        if not post:
+            return JSONResponse({"detail": "Post not found"}, status_code=404)
 
-    return PostResponse(
-        id=post.id,
-        title=post.title,
-        content=post.content,
-        author_id=post.author_id,
-        author_username=current_user.username,
-        category_id=post.category_id,
-        category_name=post.category.name,
-        created_at=post.created_at,
-        updated_at=post.updated_at,
-        upvotes=post.upvotes,
-        downvotes=post.downvotes,
-        reply_count=reply_count
-    )
+        if request.method == "GET":
+            # Get post details
+            reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
+            return JSONResponse({
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "author_id": post.author_id,
+                "author_username": post.author.username,
+                "category_id": post.category_id,
+                "category_name": post.category.name,
+                "created_at": post.created_at.isoformat(),
+                "updated_at": post.updated_at.isoformat(),
+                "upvotes": post.upvotes,
+                "downvotes": post.downvotes,
+                "reply_count": reply_count
+            })
 
-@app.delete("/api/posts/{post_id}")
-async def delete_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Delete your own post"""
-    post = db.query(Post).filter(Post.id == post_id).first()
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
-        )
+        elif request.method == "PUT":
+            # Update post (requires authentication and ownership)
+            api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+            if not api_key:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
-    if post.author_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete your own posts"
-        )
+            current_user = db.query(User).filter(User.api_key == api_key).first()
+            if not current_user:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
-    db.delete(post)
-    db.commit()
+            if post.author_id != current_user.id:
+                return JSONResponse({"detail": "You can only edit your own posts"}, status_code=403)
 
-    return {"message": "Post deleted successfully"}
+            body = await request.json()
+            post_data = PostUpdate(**body)
 
-# ============ Reply Endpoints ============
+            if post_data.title:
+                post.title = post_data.title
+            if post_data.content:
+                post.content = post_data.content
 
-def build_reply_tree(replies: List[Reply], parent_id: Optional[int] = None) -> List[ReplyResponse]:
+            db.commit()
+            db.refresh(post)
+
+            reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
+            return JSONResponse({
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "author_id": post.author_id,
+                "author_username": current_user.username,
+                "category_id": post.category_id,
+                "category_name": post.category.name,
+                "created_at": post.created_at.isoformat(),
+                "updated_at": post.updated_at.isoformat(),
+                "upvotes": post.upvotes,
+                "downvotes": post.downvotes,
+                "reply_count": reply_count
+            })
+
+        else:  # DELETE
+            # Delete post (requires authentication and ownership)
+            api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+            if not api_key:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+            current_user = db.query(User).filter(User.api_key == api_key).first()
+            if not current_user:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+            if post.author_id != current_user.id:
+                return JSONResponse({"detail": "You can only delete your own posts"}, status_code=403)
+
+            db.delete(post)
+            db.commit()
+
+            return JSONResponse({"message": "Post deleted successfully"})
+    finally:
+        db.close()
+
+
+# ============================================================================
+# Reply Endpoints
+# ============================================================================
+
+def build_reply_tree(replies: List[Reply], parent_id: Optional[int] = None) -> List[dict]:
     """Build a hierarchical tree of replies"""
     tree = []
     for reply in replies:
         if reply.parent_reply_id == parent_id:
             children = build_reply_tree(replies, reply.id)
-            tree.append(ReplyResponse(
-                id=reply.id,
-                content=reply.content,
-                post_id=reply.post_id,
-                parent_reply_id=reply.parent_reply_id,
-                author_id=reply.author_id,
-                author_username=reply.author.username,
-                created_at=reply.created_at,
-                updated_at=reply.updated_at,
-                upvotes=reply.upvotes,
-                downvotes=reply.downvotes,
-                children=children
-            ))
+            tree.append({
+                "id": reply.id,
+                "content": reply.content,
+                "post_id": reply.post_id,
+                "parent_reply_id": reply.parent_reply_id,
+                "author_id": reply.author_id,
+                "author_username": reply.author.username,
+                "created_at": reply.created_at.isoformat(),
+                "updated_at": reply.updated_at.isoformat(),
+                "upvotes": reply.upvotes,
+                "downvotes": reply.downvotes,
+                "children": children
+            })
     return tree
 
-@app.post("/api/posts/{post_id}/replies", response_model=ReplyResponse)
-async def create_reply(
-    post_id: int,
-    reply_data: ReplyCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Create a reply to a post or another reply"""
 
-    # Verify post exists
-    post = db.query(Post).filter(Post.id == post_id).first()
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
-        )
+@mcp.custom_route("/api/posts/{post_id}/replies", methods=["GET", "POST"])
+async def post_replies_endpoint(request: Request) -> JSONResponse:
+    """Handle GET (list) and POST (create) for replies to a post"""
+    post_id = int(request.path_params["post_id"])
 
-    # If replying to another reply, verify it exists
-    if reply_data.parent_reply_id:
-        parent_reply = db.query(Reply).filter(Reply.id == reply_data.parent_reply_id).first()
-        if not parent_reply or parent_reply.post_id != post_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Parent reply not found"
+    db = next(get_db())
+    try:
+        # Verify post exists
+        post = db.query(Post).filter(Post.id == post_id).first()
+        if not post:
+            return JSONResponse({"detail": "Post not found"}, status_code=404)
+
+        if request.method == "GET":
+            # Get all replies in threaded structure
+            replies = db.query(Reply).filter(Reply.post_id == post_id).all()
+            return JSONResponse(build_reply_tree(replies))
+
+        else:  # POST
+            # Create reply (requires authentication)
+            api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+            if not api_key:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+            current_user = db.query(User).filter(User.api_key == api_key).first()
+            if not current_user:
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+            body = await request.json()
+            reply_data = ReplyCreate(**body)
+
+            # If replying to another reply, verify it exists
+            if reply_data.parent_reply_id:
+                parent_reply = db.query(Reply).filter(Reply.id == reply_data.parent_reply_id).first()
+                if not parent_reply or parent_reply.post_id != post_id:
+                    return JSONResponse({"detail": "Parent reply not found"}, status_code=404)
+
+            reply = Reply(
+                content=reply_data.content,
+                post_id=post_id,
+                parent_reply_id=reply_data.parent_reply_id,
+                author_id=current_user.id
+            )
+            db.add(reply)
+            db.commit()
+            db.refresh(reply)
+
+            return JSONResponse({
+                "id": reply.id,
+                "content": reply.content,
+                "post_id": reply.post_id,
+                "parent_reply_id": reply.parent_reply_id,
+                "author_id": reply.author_id,
+                "author_username": current_user.username,
+                "created_at": reply.created_at.isoformat(),
+                "updated_at": reply.updated_at.isoformat(),
+                "upvotes": reply.upvotes,
+                "downvotes": reply.downvotes,
+                "children": []
+            })
+    finally:
+        db.close()
+
+
+@mcp.custom_route("/api/replies/{reply_id}", methods=["PUT", "DELETE"])
+async def reply_detail_endpoint(request: Request) -> JSONResponse:
+    """Handle PUT (update) and DELETE for individual replies"""
+    reply_id = int(request.path_params["reply_id"])
+
+    # Get authenticated user
+    api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+    if not api_key:
+        return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+    db = next(get_db())
+    try:
+        current_user = db.query(User).filter(User.api_key == api_key).first()
+        if not current_user:
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+        reply = db.query(Reply).filter(Reply.id == reply_id).first()
+        if not reply:
+            return JSONResponse({"detail": "Reply not found"}, status_code=404)
+
+        if reply.author_id != current_user.id:
+            return JSONResponse(
+                {"detail": "You can only modify your own replies"},
+                status_code=403
             )
 
-    reply = Reply(
-        content=reply_data.content,
-        post_id=post_id,
-        parent_reply_id=reply_data.parent_reply_id,
-        author_id=current_user.id
-    )
-    db.add(reply)
-    db.commit()
-    db.refresh(reply)
+        if request.method == "PUT":
+            # Update reply
+            body = await request.json()
+            reply_data = ReplyUpdate(**body)
 
-    return ReplyResponse(
-        id=reply.id,
-        content=reply.content,
-        post_id=reply.post_id,
-        parent_reply_id=reply.parent_reply_id,
-        author_id=reply.author_id,
-        author_username=current_user.username,
-        created_at=reply.created_at,
-        updated_at=reply.updated_at,
-        upvotes=reply.upvotes,
-        downvotes=reply.downvotes,
-        children=[]
-    )
+            reply.content = reply_data.content
+            db.commit()
+            db.refresh(reply)
 
-@app.get("/api/posts/{post_id}/replies", response_model=List[ReplyResponse])
-async def get_post_replies(post_id: int, db: Session = Depends(get_db)):
-    """Get all replies for a post in a threaded structure"""
+            return JSONResponse({
+                "id": reply.id,
+                "content": reply.content,
+                "post_id": reply.post_id,
+                "parent_reply_id": reply.parent_reply_id,
+                "author_id": reply.author_id,
+                "author_username": current_user.username,
+                "created_at": reply.created_at.isoformat(),
+                "updated_at": reply.updated_at.isoformat(),
+                "upvotes": reply.upvotes,
+                "downvotes": reply.downvotes,
+                "children": []
+            })
 
-    # Verify post exists
-    post = db.query(Post).filter(Post.id == post_id).first()
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
-        )
+        else:  # DELETE
+            db.delete(reply)
+            db.commit()
+            return JSONResponse({"message": "Reply deleted successfully"})
+    finally:
+        db.close()
 
-    replies = db.query(Reply).filter(Reply.post_id == post_id).all()
-    return build_reply_tree(replies)
 
-@app.put("/api/replies/{reply_id}", response_model=ReplyResponse)
-async def update_reply(
-    reply_id: int,
-    reply_data: ReplyUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Update your own reply"""
-    reply = db.query(Reply).filter(Reply.id == reply_id).first()
-    if not reply:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reply not found"
-        )
+# ============================================================================
+# Vote Endpoints
+# ============================================================================
 
-    if reply.author_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only edit your own replies"
-        )
-
-    reply.content = reply_data.content
-    db.commit()
-    db.refresh(reply)
-
-    return ReplyResponse(
-        id=reply.id,
-        content=reply.content,
-        post_id=reply.post_id,
-        parent_reply_id=reply.parent_reply_id,
-        author_id=reply.author_id,
-        author_username=current_user.username,
-        created_at=reply.created_at,
-        updated_at=reply.updated_at,
-        upvotes=reply.upvotes,
-        downvotes=reply.downvotes,
-        children=[]
-    )
-
-@app.delete("/api/replies/{reply_id}")
-async def delete_reply(
-    reply_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Delete your own reply"""
-    reply = db.query(Reply).filter(Reply.id == reply_id).first()
-    if not reply:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reply not found"
-        )
-
-    if reply.author_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete your own replies"
-        )
-
-    db.delete(reply)
-    db.commit()
-
-    return {"message": "Reply deleted successfully"}
-
-# ============ Vote Endpoints ============
-
-@app.post("/api/posts/{post_id}/vote")
-async def vote_on_post(
-    post_id: int,
-    vote_data: VoteCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+@mcp.custom_route("/api/posts/{post_id}/vote", methods=["POST"])
+async def vote_on_post(request: Request) -> JSONResponse:
     """Vote on a post (1 for upvote, -1 for downvote)"""
+    post_id = int(request.path_params["post_id"])
+
+    # Get authenticated user
+    api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+    if not api_key:
+        return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+    body = await request.json()
+    vote_data = VoteCreate(**body)
 
     if vote_data.vote_type not in [1, -1]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vote type must be 1 (upvote) or -1 (downvote)"
+        return JSONResponse(
+            {"detail": "Vote type must be 1 (upvote) or -1 (downvote)"},
+            status_code=400
         )
 
-    post = db.query(Post).filter(Post.id == post_id).first()
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
+    db = next(get_db())
+    try:
+        current_user = db.query(User).filter(User.api_key == api_key).first()
+        if not current_user:
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+        post = db.query(Post).filter(Post.id == post_id).first()
+        if not post:
+            return JSONResponse({"detail": "Post not found"}, status_code=404)
+
+        # Check if user already voted
+        existing_vote = db.query(Vote).filter(
+            Vote.user_id == current_user.id,
+            Vote.post_id == post_id
+        ).first()
+
+        if existing_vote:
+            # Update vote counts
+            if existing_vote.vote_type == 1:
+                post.upvotes -= 1
+            else:
+                post.downvotes -= 1
+
+            # Remove old vote
+            db.delete(existing_vote)
+
+            # If same vote type, just remove (toggle off)
+            if existing_vote.vote_type == vote_data.vote_type:
+                db.commit()
+                return JSONResponse({"message": "Vote removed"})
+
+        # Add new vote
+        vote = Vote(
+            user_id=current_user.id,
+            post_id=post_id,
+            vote_type=vote_data.vote_type
         )
+        db.add(vote)
 
-    # Check if user already voted
-    existing_vote = db.query(Vote).filter(
-        Vote.user_id == current_user.id,
-        Vote.post_id == post_id
-    ).first()
-
-    if existing_vote:
-        # Update vote counts
-        if existing_vote.vote_type == 1:
-            post.upvotes -= 1
+        if vote_data.vote_type == 1:
+            post.upvotes += 1
         else:
-            post.downvotes -= 1
+            post.downvotes += 1
 
-        # Remove old vote
-        db.delete(existing_vote)
+        db.commit()
+        return JSONResponse({"message": "Vote recorded"})
+    finally:
+        db.close()
 
-        # If same vote type, just remove (toggle off)
-        if existing_vote.vote_type == vote_data.vote_type:
-            db.commit()
-            return {"message": "Vote removed"}
 
-    # Add new vote
-    vote = Vote(
-        user_id=current_user.id,
-        post_id=post_id,
-        vote_type=vote_data.vote_type
-    )
-    db.add(vote)
-
-    if vote_data.vote_type == 1:
-        post.upvotes += 1
-    else:
-        post.downvotes += 1
-
-    db.commit()
-
-    return {"message": "Vote recorded"}
-
-@app.post("/api/replies/{reply_id}/vote")
-async def vote_on_reply(
-    reply_id: int,
-    vote_data: VoteCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+@mcp.custom_route("/api/replies/{reply_id}/vote", methods=["POST"])
+async def vote_on_reply(request: Request) -> JSONResponse:
     """Vote on a reply (1 for upvote, -1 for downvote)"""
+    reply_id = int(request.path_params["reply_id"])
+
+    # Get authenticated user
+    api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+    if not api_key:
+        return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+    body = await request.json()
+    vote_data = VoteCreate(**body)
 
     if vote_data.vote_type not in [1, -1]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vote type must be 1 (upvote) or -1 (downvote)"
+        return JSONResponse(
+            {"detail": "Vote type must be 1 (upvote) or -1 (downvote)"},
+            status_code=400
         )
 
-    reply = db.query(Reply).filter(Reply.id == reply_id).first()
-    if not reply:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reply not found"
+    db = next(get_db())
+    try:
+        current_user = db.query(User).filter(User.api_key == api_key).first()
+        if not current_user:
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+        reply = db.query(Reply).filter(Reply.id == reply_id).first()
+        if not reply:
+            return JSONResponse({"detail": "Reply not found"}, status_code=404)
+
+        # Check if user already voted
+        existing_vote = db.query(Vote).filter(
+            Vote.user_id == current_user.id,
+            Vote.reply_id == reply_id
+        ).first()
+
+        if existing_vote:
+            # Update vote counts
+            if existing_vote.vote_type == 1:
+                reply.upvotes -= 1
+            else:
+                reply.downvotes -= 1
+
+            # Remove old vote
+            db.delete(existing_vote)
+
+            # If same vote type, just remove (toggle off)
+            if existing_vote.vote_type == vote_data.vote_type:
+                db.commit()
+                return JSONResponse({"message": "Vote removed"})
+
+        # Add new vote
+        vote = Vote(
+            user_id=current_user.id,
+            reply_id=reply_id,
+            vote_type=vote_data.vote_type
         )
+        db.add(vote)
 
-    # Check if user already voted
-    existing_vote = db.query(Vote).filter(
-        Vote.user_id == current_user.id,
-        Vote.reply_id == reply_id
-    ).first()
-
-    if existing_vote:
-        # Update vote counts
-        if existing_vote.vote_type == 1:
-            reply.upvotes -= 1
+        if vote_data.vote_type == 1:
+            reply.upvotes += 1
         else:
-            reply.downvotes -= 1
+            reply.downvotes += 1
 
-        # Remove old vote
-        db.delete(existing_vote)
+        db.commit()
+        return JSONResponse({"message": "Vote recorded"})
+    finally:
+        db.close()
 
-        # If same vote type, just remove (toggle off)
-        if existing_vote.vote_type == vote_data.vote_type:
-            db.commit()
-            return {"message": "Vote removed"}
 
-    # Add new vote
-    vote = Vote(
-        user_id=current_user.id,
-        reply_id=reply_id,
-        vote_type=vote_data.vote_type
-    )
-    db.add(vote)
+# ============================================================================
+# Search Endpoint
+# ============================================================================
 
-    if vote_data.vote_type == 1:
-        reply.upvotes += 1
-    else:
-        reply.downvotes += 1
-
-    db.commit()
-
-    return {"message": "Vote recorded"}
-
-# ============ Search Endpoint ============
-
-@app.get("/api/search", response_model=SearchResponse)
-async def search_posts(
-    q: str = Query(..., min_length=1),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
+@mcp.custom_route("/api/search", methods=["GET"])
+async def search_posts(request: Request) -> JSONResponse:
     """Search posts by title and content"""
+    q = request.query_params.get("q")
+    if not q or len(q) < 1:
+        return JSONResponse({"detail": "Search query required"}, status_code=400)
 
-    search_term = f"%{q}%"
-    posts = db.query(Post).filter(
-        (Post.title.ilike(search_term)) | (Post.content.ilike(search_term))
-    ).order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
+    skip = int(request.query_params.get("skip", 0))
+    limit = int(request.query_params.get("limit", 20))
 
-    total = db.query(Post).filter(
-        (Post.title.ilike(search_term)) | (Post.content.ilike(search_term))
-    ).count()
+    db = next(get_db())
+    try:
+        search_term = f"%{q}%"
+        posts = db.query(Post).filter(
+            (Post.title.ilike(search_term)) | (Post.content.ilike(search_term))
+        ).order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
 
-    result = []
-    for post in posts:
-        reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
-        result.append(PostResponse(
-            id=post.id,
-            title=post.title,
-            content=post.content,
-            author_id=post.author_id,
-            author_username=post.author.username,
-            category_id=post.category_id,
-            category_name=post.category.name,
-            created_at=post.created_at,
-            updated_at=post.updated_at,
-            upvotes=post.upvotes,
-            downvotes=post.downvotes,
-            reply_count=reply_count
-        ))
+        total = db.query(Post).filter(
+            (Post.title.ilike(search_term)) | (Post.content.ilike(search_term))
+        ).count()
 
-    return SearchResponse(posts=result, total=total)
+        result = []
+        for post in posts:
+            reply_count = db.query(Reply).filter(Reply.post_id == post.id).count()
+            result.append({
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "author_id": post.author_id,
+                "author_username": post.author.username,
+                "category_id": post.category_id,
+                "category_name": post.category.name,
+                "created_at": post.created_at.isoformat(),
+                "updated_at": post.updated_at.isoformat(),
+                "upvotes": post.upvotes,
+                "downvotes": post.downvotes,
+                "reply_count": reply_count
+            })
 
-# ============ Activity Endpoint ============
+        return JSONResponse({"posts": result, "total": total})
+    finally:
+        db.close()
 
-@app.get("/api/activity", response_model=ActivityResponse)
-async def get_activity(
-    since: datetime = Query(..., description="Return activity since this timestamp"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+
+# ============================================================================
+# Activity Endpoint
+# ============================================================================
+
+@mcp.custom_route("/api/activity", methods=["GET"])
+async def get_activity(request: Request) -> JSONResponse:
     """Get all relevant activity for the current user since a timestamp"""
+    since_param = request.query_params.get("since")
+    if not since_param:
+        return JSONResponse({"detail": "since parameter required"}, status_code=400)
 
-    # Find all posts by the current user
-    user_posts = db.query(Post).filter(Post.author_id == current_user.id).all()
-    user_post_ids = [p.id for p in user_posts]
+    try:
+        since = datetime.fromisoformat(since_param.replace('Z', '+00:00'))
+    except ValueError:
+        return JSONResponse({"detail": "Invalid timestamp format"}, status_code=400)
 
-    # Create a mapping of post_id to post_title for quick lookup
-    post_titles = {p.id: p.title for p in user_posts}
+    # Get authenticated user
+    api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+    if not api_key:
+        return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
-    # Find replies to those posts since the timestamp
-    # Exclude replies by the current user (no need to notify about own replies)
-    replies_to_my_posts = db.query(Reply).filter(
-        Reply.post_id.in_(user_post_ids),
-        Reply.created_at > since,
-        Reply.author_id != current_user.id
-    ).order_by(Reply.created_at.desc()).all()
+    db = next(get_db())
+    try:
+        current_user = db.query(User).filter(User.api_key == api_key).first()
+        if not current_user:
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
-    # Build the response items
-    reply_items = []
-    for reply in replies_to_my_posts:
-        reply_items.append(ReplyActivityItem(
-            post_id=reply.post_id,
-            post_title=post_titles.get(reply.post_id, "Unknown"),
-            reply_id=reply.id,
-            author_username=reply.author.username,
-            content_preview=reply.content[:100] + ("..." if len(reply.content) > 100 else ""),
-            created_at=reply.created_at
-        ))
+        # Find all posts by the current user
+        user_posts = db.query(Post).filter(Post.author_id == current_user.id).all()
+        user_post_ids = [p.id for p in user_posts]
 
-    return ActivityResponse(
-        replies_to_my_posts=reply_items,
-        last_checked=datetime.now(timezone.utc),
-        has_more=False  # Could implement pagination later
+        # Create a mapping of post_id to post_title for quick lookup
+        post_titles = {p.id: p.title for p in user_posts}
+
+        # Find replies to those posts since the timestamp
+        # Exclude replies by the current user (no need to notify about own replies)
+        replies_to_my_posts = db.query(Reply).filter(
+            Reply.post_id.in_(user_post_ids),
+            Reply.created_at > since,
+            Reply.author_id != current_user.id
+        ).order_by(Reply.created_at.desc()).all()
+
+        # Build the response items
+        reply_items = []
+        for reply in replies_to_my_posts:
+            reply_items.append({
+                "post_id": reply.post_id,
+                "post_title": post_titles.get(reply.post_id, "Unknown"),
+                "reply_id": reply.id,
+                "author_username": reply.author.username,
+                "content_preview": reply.content[:100] + ("..." if len(reply.content) > 100 else ""),
+                "created_at": reply.created_at.isoformat()
+            })
+
+        return JSONResponse({
+            "replies_to_my_posts": reply_items,
+            "last_checked": datetime.now(timezone.utc).isoformat(),
+            "has_more": False  # Could implement pagination later
+        })
+    finally:
+        db.close()
+
+
+# ============================================================================
+# Create HTTP App (after all routes are defined)
+# ============================================================================
+
+# Create HTTP app with CORS and user identification middleware
+starlette_middleware = [
+    Middleware(UserIdentificationMiddleware),
+    Middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
+]
+
+# Get the HTTP app with middleware
+app = mcp.http_app(middleware=starlette_middleware)
+
+# Mount static files on the Starlette app
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+app.mount("/api-guide", StaticFiles(directory="docs"), name="api-guide")
+
+
+# ============================================================================
+# Run Server
+# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn

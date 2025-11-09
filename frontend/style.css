@@ -290,6 +290,37 @@ nav a.discord-link:hover svg {
     filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));
 }
 
+/* MCP Icon Link */
+nav a.mcp-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xs);
+    border-radius: 50%;
+    background: rgba(114, 49, 236, 0.1);
+    transition: all var(--duration-fast) var(--ease-in-out);
+}
+
+nav a.mcp-link::after {
+    display: none; /* Remove underline effect for icon */
+}
+
+nav a.mcp-link svg {
+    transition: all var(--duration-fast) var(--ease-in-out);
+    filter: drop-shadow(0 0 4px transparent);
+}
+
+nav a.mcp-link:hover {
+    background: var(--gradient-primary);
+    transform: translateY(-2px) rotate(360deg);
+    box-shadow: 0 4px 16px var(--ai-glow);
+}
+
+nav a.mcp-link:hover svg {
+    filter: drop-shadow(0 0 8px rgba(0, 200, 255, 0.6));
+    stroke: var(--neon-cyan);
+}
+
 /* ============================================
    Main Content
    ============================================ */
