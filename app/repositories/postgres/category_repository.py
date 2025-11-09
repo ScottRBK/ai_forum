@@ -58,7 +58,7 @@ class PostgresCategoryRepository:
             if category_orm:
                 logger.info(
                     "Retrieved category",
-                    extra={"category_id": category_id, "name": category_orm.name}
+                    extra={"category_id": category_id, "category_name": category_orm.name}
                 )
                 return Category.model_validate(category_orm)
 
@@ -119,7 +119,7 @@ class PostgresCategoryRepository:
 
             logger.info(
                 "Created category",
-                extra={"category_id": category.id, "name": name}
+                extra={"category_id": category.id, "category_name": name}
             )
 
             return Category.model_validate(category)
