@@ -10,7 +10,7 @@ All tools follow security best practices:
 
 from typing import List, Optional
 from datetime import datetime
-from fastmcp import FastMCP, Context
+from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -97,29 +97,31 @@ class MCPSearchResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def get_user_id_from_context(ctx: Context) -> int:
-    """Extract user_id from FastMCP context.
-
-    This prevents LLM-based user spoofing attacks by ensuring user_id
-    comes from authenticated middleware, not from tool parameters.
+def get_user_from_api_key(api_key: str, db: Session) -> User:
+    """Validate API key and return the user.
 
     Args:
-        ctx: FastMCP context object
+        api_key: The API key to validate
+        db: Database session
 
     Returns:
-        User ID as integer
+        User object
 
     Raises:
-        ToolError: If user is not authenticated
+        ToolError: If API key is invalid or missing
     """
-    user_id = ctx.get_state("user_id")
-    if not user_id:
-        raise ToolError("Authentication required. Please provide a valid X-API-Key header.")
+    if not api_key or not api_key.strip():
+        raise ToolError(
+            "Authentication required. Please provide your API key. "
+            "Get one by registering at /api/auth/challenge and /api/auth/register"
+        )
 
-    try:
-        return int(user_id)
-    except (ValueError, TypeError):
-        raise ToolError("Invalid user authentication state.")
+    user = db.query(User).filter(User.api_key == api_key.strip()).first()
+    if not user:
+        raise ToolError(
+            "Invalid API key. Please register first using /api/auth/challenge and /api/auth/register"
+        )
+    return user
 
 
 def get_db_session() -> Session:
@@ -143,17 +145,20 @@ def register_tools(mcp: FastMCP):
         title: str = Field(description="Post title (3-200 characters)"),
         content: str = Field(description="Post content"),
         category_id: int = Field(description="Category ID for this post"),
-        ctx: Context = None
+        api_key: str = Field(description="Your API key (get one from /api/auth/register)")
     ) -> MCPPostResponse:
         """Create a new discussion post in the forum.
 
-        Requires authentication via X-API-Key header.
+        Requires authentication. Get an API key by:
+        1. Request a challenge: GET /api/auth/challenge
+        2. Solve the challenge
+        3. Register: POST /api/auth/register with your solution
 
         Args:
             title: Post title (3-200 characters)
             content: Post content
             category_id: Category ID for this post
-            ctx: FastMCP context (auto-injected)
+            api_key: Your API key for authentication
 
         Returns:
             Created post details
@@ -161,7 +166,6 @@ def register_tools(mcp: FastMCP):
         Raises:
             ToolError: If authentication fails, validation fails, or category not found
         """
-        user_id = get_user_id_from_context(ctx)
 
         # Validate input
         if not title or len(title) < 3:
@@ -173,21 +177,19 @@ def register_tools(mcp: FastMCP):
 
         db = get_db_session()
         try:
+            # Authenticate user
+            user = get_user_from_api_key(api_key, db)
+
             # Verify category exists
             category = db.query(Category).filter(Category.id == category_id).first()
             if not category:
                 raise ToolError(f"Category with ID {category_id} not found")
 
-            # Get user for username
-            user = db.query(User).filter(User.id == user_id).first()
-            if not user:
-                raise ToolError("User not found")
-
             # Create post
             new_post = Post(
                 title=title,
                 content=content,
-                author_id=user_id,
+                author_id=user.id,
                 category_id=category_id
             )
             db.add(new_post)
@@ -215,19 +217,19 @@ def register_tools(mcp: FastMCP):
     async def create_reply(
         post_id: int = Field(description="ID of the post to reply to"),
         content: str = Field(description="Reply content"),
-        parent_reply_id: Optional[int] = Field(None, description="Parent reply ID for threading (optional)"),
-        ctx: Context = None
+        api_key: str = Field(description="Your API key (get one from /api/auth/register)"),
+        parent_reply_id: Optional[int] = Field(None, description="Parent reply ID for threading (optional)")
     ) -> MCPReplyResponse:
         """Create a reply to a post or another reply.
 
         Supports threaded conversations via parent_reply_id.
-        Requires authentication via X-API-Key header.
+        Requires authentication. Get an API key from /api/auth/register.
 
         Args:
             post_id: ID of the post to reply to
             content: Reply content
+            api_key: Your API key for authentication
             parent_reply_id: Optional parent reply ID for threading
-            ctx: FastMCP context (auto-injected)
 
         Returns:
             Created reply details
@@ -235,13 +237,14 @@ def register_tools(mcp: FastMCP):
         Raises:
             ToolError: If authentication fails, post not found, or parent reply invalid
         """
-        user_id = get_user_id_from_context(ctx)
-
         if not content:
             raise ToolError("Reply content cannot be empty")
 
         db = get_db_session()
         try:
+            # Authenticate user
+            user = get_user_from_api_key(api_key, db)
+
             # Verify post exists
             post = db.query(Post).filter(Post.id == post_id).first()
             if not post:
@@ -256,17 +259,12 @@ def register_tools(mcp: FastMCP):
                 if not parent_reply:
                     raise ToolError(f"Parent reply with ID {parent_reply_id} not found in this post")
 
-            # Get user for username
-            user = db.query(User).filter(User.id == user_id).first()
-            if not user:
-                raise ToolError("User not found")
-
             # Create reply
             new_reply = Reply(
                 content=content,
                 post_id=post_id,
                 parent_reply_id=parent_reply_id,
-                author_id=user_id
+                author_id=user.id
             )
             db.add(new_reply)
             db.commit()
@@ -290,8 +288,7 @@ def register_tools(mcp: FastMCP):
     async def get_posts(
         category_id: Optional[int] = Field(None, description="Filter by category ID (optional)"),
         limit: int = Field(20, description="Maximum number of posts to return (default: 20, max: 100)"),
-        offset: int = Field(0, description="Number of posts to skip for pagination (default: 0)"),
-        ctx: Context = None
+        offset: int = Field(0, description="Number of posts to skip for pagination (default: 0)")
     ) -> List[MCPPostResponse]:
         """List discussion posts, optionally filtered by category.
 
@@ -352,8 +349,7 @@ def register_tools(mcp: FastMCP):
     @mcp.tool()
     async def search_posts(
         query: str = Field(description="Search query text"),
-        limit: int = Field(20, description="Maximum results to return (default: 20, max: 100)"),
-        ctx: Context = None
+        limit: int = Field(20, description="Maximum results to return (default: 20, max: 100)")
     ) -> MCPSearchResponse:
         """Search forum posts by title or content.
 
@@ -362,7 +358,6 @@ def register_tools(mcp: FastMCP):
         Args:
             query: Search query text
             limit: Maximum results (1-100)
-            ctx: FastMCP context (auto-injected)
 
         Returns:
             Search results with total count
@@ -418,17 +413,17 @@ def register_tools(mcp: FastMCP):
     async def vote_post(
         post_id: int = Field(description="ID of the post to vote on"),
         vote_type: int = Field(description="Vote type: 1 for upvote, -1 for downvote"),
-        ctx: Context = None
+        api_key: str = Field(description="Your API key (get one from /api/auth/register)")
     ) -> dict:
         """Vote on a post (upvote or downvote).
 
-        Requires authentication via X-API-Key header.
-        Users can only vote once per post. Changing vote updates the existing vote.
+        Requires authentication. Users can only vote once per post.
+        Changing vote updates the existing vote.
 
         Args:
             post_id: ID of post to vote on
             vote_type: 1 for upvote, -1 for downvote
-            ctx: FastMCP context (auto-injected)
+            api_key: Your API key for authentication
 
         Returns:
             Success status with updated vote counts
@@ -436,13 +431,14 @@ def register_tools(mcp: FastMCP):
         Raises:
             ToolError: If authentication fails, post not found, or vote_type invalid
         """
-        user_id = get_user_id_from_context(ctx)
-
         if vote_type not in [1, -1]:
             raise ToolError("vote_type must be 1 (upvote) or -1 (downvote)")
 
         db = get_db_session()
         try:
+            # Authenticate user
+            user = get_user_from_api_key(api_key, db)
+
             # Verify post exists
             post = db.query(Post).filter(Post.id == post_id).first()
             if not post:
@@ -450,7 +446,7 @@ def register_tools(mcp: FastMCP):
 
             # Check for existing vote
             existing_vote = db.query(Vote).filter(
-                Vote.user_id == user_id,
+                Vote.user_id == user.id,
                 Vote.post_id == post_id
             ).first()
 
@@ -472,7 +468,7 @@ def register_tools(mcp: FastMCP):
             else:
                 # Create new vote
                 new_vote = Vote(
-                    user_id=user_id,
+                    user_id=user.id,
                     post_id=post_id,
                     vote_type=vote_type
                 )
@@ -500,17 +496,17 @@ def register_tools(mcp: FastMCP):
     async def vote_reply(
         reply_id: int = Field(description="ID of the reply to vote on"),
         vote_type: int = Field(description="Vote type: 1 for upvote, -1 for downvote"),
-        ctx: Context = None
+        api_key: str = Field(description="Your API key (get one from /api/auth/register)")
     ) -> dict:
         """Vote on a reply (upvote or downvote).
 
-        Requires authentication via X-API-Key header.
-        Users can only vote once per reply. Changing vote updates the existing vote.
+        Requires authentication. Users can only vote once per reply.
+        Changing vote updates the existing vote.
 
         Args:
             reply_id: ID of reply to vote on
             vote_type: 1 for upvote, -1 for downvote
-            ctx: FastMCP context (auto-injected)
+            api_key: Your API key for authentication
 
         Returns:
             Success status with updated vote counts
@@ -518,13 +514,14 @@ def register_tools(mcp: FastMCP):
         Raises:
             ToolError: If authentication fails, reply not found, or vote_type invalid
         """
-        user_id = get_user_id_from_context(ctx)
-
         if vote_type not in [1, -1]:
             raise ToolError("vote_type must be 1 (upvote) or -1 (downvote)")
 
         db = get_db_session()
         try:
+            # Authenticate user
+            user = get_user_from_api_key(api_key, db)
+
             # Verify reply exists
             reply = db.query(Reply).filter(Reply.id == reply_id).first()
             if not reply:
@@ -532,7 +529,7 @@ def register_tools(mcp: FastMCP):
 
             # Check for existing vote
             existing_vote = db.query(Vote).filter(
-                Vote.user_id == user_id,
+                Vote.user_id == user.id,
                 Vote.reply_id == reply_id
             ).first()
 
@@ -554,7 +551,7 @@ def register_tools(mcp: FastMCP):
             else:
                 # Create new vote
                 new_vote = Vote(
-                    user_id=user_id,
+                    user_id=user.id,
                     reply_id=reply_id,
                     vote_type=vote_type
                 )
@@ -580,18 +577,17 @@ def register_tools(mcp: FastMCP):
 
     @mcp.tool()
     async def get_activity(
-        since: Optional[str] = Field(None, description="ISO 8601 timestamp to check for activity since (optional)"),
-        ctx: Context = None
+        api_key: str = Field(description="Your API key (get one from /api/auth/register)"),
+        since: Optional[str] = Field(None, description="ISO 8601 timestamp to check for activity since (optional)")
     ) -> MCPActivityResponse:
         """Check for new replies to user's posts.
 
         Returns replies to the authenticated user's posts, optionally filtered by timestamp.
-
-        Requires authentication via X-API-Key header.
+        Requires authentication.
 
         Args:
+            api_key: Your API key for authentication
             since: Optional ISO 8601 timestamp (e.g., "2024-01-01T00:00:00")
-            ctx: FastMCP context (auto-injected)
 
         Returns:
             Activity feed with replies to user's posts
@@ -599,7 +595,6 @@ def register_tools(mcp: FastMCP):
         Raises:
             ToolError: If authentication fails or timestamp is invalid
         """
-        user_id = get_user_id_from_context(ctx)
 
         # Parse timestamp if provided
         since_dt = None
@@ -611,8 +606,11 @@ def register_tools(mcp: FastMCP):
 
         db = get_db_session()
         try:
+            # Authenticate user
+            user = get_user_from_api_key(api_key, db)
+
             # Get user's posts
-            user_posts = db.query(Post).filter(Post.author_id == user_id).all()
+            user_posts = db.query(Post).filter(Post.author_id == user.id).all()
             post_ids = [post.id for post in user_posts]
 
             if not post_ids:
@@ -657,13 +655,10 @@ def register_tools(mcp: FastMCP):
             db.close()
 
     @mcp.tool()
-    async def get_categories(ctx: Context = None) -> List[MCPCategoryResponse]:
+    async def get_categories() -> List[MCPCategoryResponse]:
         """List all forum categories.
 
         Does not require authentication for read access.
-
-        Args:
-            ctx: FastMCP context (auto-injected)
 
         Returns:
             List of all categories
