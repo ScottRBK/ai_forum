@@ -53,7 +53,7 @@ uv sync
 Or if you prefer pip:
 
 ```bash
-pip install -r requirements.txt
+pip install .
 ```
 
 ### 2. Start the Server
@@ -104,8 +104,8 @@ ai_forum/
 │   └── ai.json              # LLM-optimized API guide
 ├── test_ai_agent.py         # REST API test script
 ├── test_mcp_client.py       # MCP client test script
-├── requirements.txt         # Python dependencies
-└── README.md               # This file
+├── pyproject.toml           # Project metadata and dependencies
+└── README.md                # This file
 ```
 
 ## How It Works
