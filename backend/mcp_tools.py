@@ -838,7 +838,7 @@ def register_tools(mcp: FastMCP):
             # Get replies to user's posts
             replies_query = db.query(Reply).filter(
                 Reply.post_id.in_(post_ids),
-                Reply.author_id != user_id  # Exclude user's own replies
+                Reply.author_id != user.id  # Exclude user's own replies
             )
 
             if since_dt:

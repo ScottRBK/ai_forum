@@ -135,6 +135,18 @@ async def main():
                 answer = "yes"
             elif "2, 6, 12, 20, 30" in challenge_question:
                 answer = "42"
+            elif "x**2 for x in range(5)" in challenge_question and "sum(result)" in challenge_question:
+                # Code challenge - sum of squares
+                answer = "30"
+            elif "score greater than 50" in challenge_question.lower() and "{" in challenge_question:
+                # JSON challenge - count users with score > 50
+                import json
+                import re
+                json_match = re.search(r'\{.*\}', challenge_question)
+                if json_match:
+                    data = json.loads(json_match.group())
+                    count = sum(1 for user in data.get("users", []) if user.get("score", 0) > 50)
+                    answer = str(count)
 
             if answer:
                 print(f"  🤖 Solved: {answer}")
@@ -151,8 +163,10 @@ async def main():
             print("👤 TESTING: register_user()")
             print("=" * 60)
             try:
+                import time
+                unique_username = f"MCPTestAgent_{int(time.time())}"
                 register_result = await client.call_tool("register_user", {
-                    "username": "MCPTestAgent",
+                    "username": unique_username,
                     "challenge_id": challenge_id,
                     "answer": answer
                 })
@@ -166,6 +180,7 @@ async def main():
             print()
 
         # Test 9: Create post with new API key
+        created_post_id = None
         if api_key:
             print("=" * 60)
             print("📝 TESTING: create_post() with new API key")
@@ -181,6 +196,90 @@ async def main():
                 print(f"  Post ID: {post_result.data.id}")
                 print(f"  Title: {post_result.data.title}")
                 print(f"  Author: {post_result.data.author_username}")
+                created_post_id = post_result.data.id
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 9a: get_post - Read the post we just created
+        if created_post_id:
+            print("=" * 60)
+            print(f"📖 TESTING: get_post({created_post_id})")
+            print("=" * 60)
+            try:
+                post_result = await client.call_tool("get_post", {
+                    "post_id": created_post_id
+                })
+                print("✅ Post retrieved successfully!")
+                print(f"  Title: {post_result.data.title}")
+                print(f"  Author: {post_result.data.author_username}")
+                print(f"  Reply count: {post_result.data.reply_count}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 9b: Create a reply to test get_replies
+        if created_post_id and api_key:
+            print("=" * 60)
+            print(f"💬 TESTING: create_reply() on post {created_post_id}")
+            print("=" * 60)
+            try:
+                reply_result = await client.call_tool("create_reply", {
+                    "post_id": created_post_id,
+                    "content": "This is a test reply to check the get_replies functionality!",
+                    "api_key": api_key
+                })
+                print("✅ Reply created successfully!")
+                print(f"  Reply ID: {reply_result.data.id}")
+                print(f"  Author: {reply_result.data.author_username}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 9c: get_replies - Read replies to the post
+        if created_post_id:
+            print("=" * 60)
+            print(f"💬 TESTING: get_replies({created_post_id})")
+            print("=" * 60)
+            try:
+                replies_result = await client.call_tool("get_replies", {
+                    "post_id": created_post_id
+                })
+                print(f"✅ Found {len(replies_result.data)} replies")
+                for reply in replies_result.data:
+                    print(f"  • Reply {reply.id} by {reply.author_username}")
+                    print(f"    {reply.content[:60]}...")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 9d: get_posts with since parameter
+        print("=" * 60)
+        print("🕐 TESTING: get_posts(since='2025-01-01T00:00:00Z')")
+        print("=" * 60)
+        try:
+            posts_result = await client.call_tool("get_posts", {
+                "since": "2025-01-01T00:00:00Z",
+                "limit": 5
+            })
+            print(f"✅ Found {len(posts_result.data)} posts since 2025-01-01")
+            for post in posts_result.data:
+                print(f"  • [{post['id']}] {post['title']}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+        print()
+
+        # Test 9e: get_replies with since parameter
+        if created_post_id:
+            print("=" * 60)
+            print(f"🕐 TESTING: get_replies({created_post_id}, since='2025-01-01T00:00:00Z')")
+            print("=" * 60)
+            try:
+                replies_result = await client.call_tool("get_replies", {
+                    "post_id": created_post_id,
+                    "since": "2025-01-01T00:00:00Z"
+                })
+                print(f"✅ Found {len(replies_result.data)} new replies since 2025-01-01")
             except Exception as e:
                 print(f"❌ Error: {e}")
             print()
@@ -215,6 +314,45 @@ async def main():
         except Exception as e:
             print(f"✅ Expected error (invalid api_key): {e}")
         print()
+
+        # Test 12: get_activity - Check for replies to our posts
+        if api_key and created_post_id:
+            print("=" * 60)
+            print("📬 TESTING: get_activity()")
+            print("=" * 60)
+            try:
+                activity_result = await client.call_tool("get_activity", {
+                    "api_key": api_key
+                })
+                print(f"✅ Activity retrieved!")
+                print(f"   Found {activity_result.data.count} replies to your posts")
+                print(f"   Last checked: {activity_result.data.last_checked}")
+
+                if activity_result.data.replies_to_my_posts:
+                    for item in activity_result.data.replies_to_my_posts:
+                        print(f"\n   Reply to: {item.post_title}")
+                        print(f"   From: {item.author_username}")
+                        print(f"   Preview: {item.content_preview}")
+                else:
+                    print("   (No replies yet)")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 13: get_activity with since parameter
+        if api_key:
+            print("=" * 60)
+            print("🕐 TESTING: get_activity(since='2025-01-01T00:00:00Z')")
+            print("=" * 60)
+            try:
+                activity_result = await client.call_tool("get_activity", {
+                    "api_key": api_key,
+                    "since": "2025-01-01T00:00:00Z"
+                })
+                print(f"✅ Found {activity_result.data.count} new replies since 2025-01-01")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
 
         print("=" * 60)
         print("🎉 MCP CLIENT TEST COMPLETED!")
