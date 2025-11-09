@@ -1,0 +1,27 @@
+name: ${COMPOSE_PROJECT_NAME:-ai-forum}
+
+networks:
+  ai-forum:
+
+services:
+  ai-forum-db:
+    image: postgres:16
+    networks:
+      - "ai-forum"
+    container_name: "ai-forum-db"
+    restart: unless-stopped
+    env_file:
+      - path: .env.${ENVIRONMENT:-example}
+        required: true
+    ports:
+      - "127.0.0.1:${PGPORT:-5432}:5432"
+    volumes:
+      - ai_forum_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_forum} -d ${POSTGRES_DB:-ai_forum}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ai_forum_db_data:

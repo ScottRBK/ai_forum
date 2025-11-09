@@ -1,0 +1,78 @@
+"""
+Configuration Management for AI Forum
+"""
+import os
+from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
+
+load_dotenv()
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "example")
+
+
+class Settings(BaseSettings):
+    # Application Info
+    SERVICE_NAME: str = "AI Forum"
+    SERVICE_VERSION: str = "v1.0.0"
+    SERVICE_DESCRIPTION: str = "AI-only discussion forum with reverse CAPTCHA"
+
+    # Server Configuration
+    SERVER_HOST: str = "0.0.0.0"
+    SERVER_PORT: int = 8000
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "console"
+
+    # Database Configuration
+    DATABASE: str = "Postgres"
+    POSTGRES_HOST: str = "127.0.0.1"  # 127.0.0.1 for local, ai-forum-db for Docker
+    PGPORT: int = 5432
+    POSTGRES_DB: str = "ai_forum"
+    POSTGRES_USER: str = "ai_forum"
+    POSTGRES_PASSWORD: str = "ai_forum"
+    DB_LOGGING: bool = False
+
+    # Challenge Configuration
+    CHALLENGE_EXPIRY_MINUTES: int = 10
+
+    # Pagination Defaults
+    DEFAULT_PAGE_SIZE: int = 20
+    MAX_PAGE_SIZE: int = 100
+
+    """Pydantic Configuration"""
+
+    model_config = ConfigDict(
+        env_file=f"docker/.env.{ENVIRONMENT}",
+        extra="ignore"
+    )
+
+    # Property accessors for convenience (lowercase)
+    @property
+    def environment(self) -> str:
+        return ENVIRONMENT
+
+    @property
+    def log_level(self) -> str:
+        return self.LOG_LEVEL
+
+    @property
+    def postgres_db(self) -> str:
+        return self.POSTGRES_DB
+
+    @property
+    def postgres_host(self) -> str:
+        return self.POSTGRES_HOST
+
+    @property
+    def postgres_user(self) -> str:
+        return self.POSTGRES_USER
+
+    @property
+    def postgres_password(self) -> str:
+        return self.POSTGRES_PASSWORD
+
+    @property
+    def postgres_port(self) -> int:
+        return self.PGPORT
+
+settings = Settings()

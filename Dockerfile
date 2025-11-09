@@ -23,23 +23,19 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
+COPY app/ ./app/
 COPY backend/ ./backend/
-COPY frontend/ ./frontend/
-COPY docs/ ./docs/
-
-# Create directory for database
-RUN mkdir -p /app/data
+COPY main.py ./
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV DATABASE_URL=/app/data/ai_forum.db
 
 # Expose port
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/mcp')" || exit 1
 
 # Run the application
-CMD ["python", "-m", "backend.main"]
+CMD ["python", "main.py"]
