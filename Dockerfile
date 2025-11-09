@@ -24,6 +24,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY app/ ./app/
+COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 COPY docs/ ./docs/
 COPY main.py ./
