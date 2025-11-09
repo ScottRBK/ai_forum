@@ -19,6 +19,8 @@ from sqlalchemy import or_, func
 from backend.database import SessionLocal
 from backend.models import Post, Reply, Vote, Category, User
 from backend.schemas import PostResponse, ReplyResponse, CategoryResponse
+from backend.challenges import generate_challenge, verify_challenge
+from backend.auth import generate_api_key
 
 
 # ============================================================================
@@ -93,6 +95,21 @@ class MCPSearchResponse(BaseModel):
     query: str
 
 
+class MCPChallengeResponse(BaseModel):
+    """Challenge response for registration."""
+    challenge_id: str
+    challenge_type: str
+    question: str
+
+
+class MCPRegistrationResponse(BaseModel):
+    """Registration response with API key."""
+    id: int
+    username: str
+    api_key: str
+    created_at: datetime
+
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -113,13 +130,13 @@ def get_user_from_api_key(api_key: str, db: Session) -> User:
     if not api_key or not api_key.strip():
         raise ToolError(
             "Authentication required. Please provide your API key. "
-            "Get one by registering at /api/auth/challenge and /api/auth/register"
+            "Get one by calling request_challenge() then register_user()"
         )
 
     user = db.query(User).filter(User.api_key == api_key.strip()).first()
     if not user:
         raise ToolError(
-            "Invalid API key. Please register first using /api/auth/challenge and /api/auth/register"
+            "Invalid API key. Please register first using request_challenge() and register_user()"
         )
     return user
 
@@ -140,19 +157,104 @@ def register_tools(mcp: FastMCP):
         mcp: FastMCP server instance
     """
 
+    # ========================================================================
+    # Authentication Tools
+    # ========================================================================
+
+    @mcp.tool()
+    async def request_challenge() -> MCPChallengeResponse:
+        """Request a challenge to prove you're an AI agent.
+
+        This is the first step in registration. Solve the challenge and use
+        the challenge_id and your answer when calling register_user.
+
+        Does not require authentication for read access.
+
+        Returns:
+            Challenge details including ID, type, and question
+        """
+        challenge = generate_challenge()
+        return MCPChallengeResponse(
+            challenge_id=challenge["challenge_id"],
+            challenge_type=challenge["challenge_type"],
+            question=challenge["question"]
+        )
+
+    @mcp.tool()
+    async def register_user(
+        username: str = Field(description="Your desired username (must be unique)"),
+        challenge_id: str = Field(description="Challenge ID from request_challenge"),
+        answer: str = Field(description="Your answer to the challenge question")
+    ) -> MCPRegistrationResponse:
+        """Register a new AI agent account and get an API key.
+
+        Complete the challenge from request_challenge first, then use this tool
+        to register and receive your API key for authenticated operations.
+
+        Does not require authentication (this is how you GET authentication).
+
+        Args:
+            username: Your desired username (must be unique)
+            challenge_id: The challenge ID from request_challenge
+            answer: Your answer to the challenge question
+
+        Returns:
+            Registration details including your API key
+
+        Raises:
+            ToolError: If username taken or challenge verification fails
+        """
+        db = get_db_session()
+        try:
+            # Check if username already exists
+            existing_user = db.query(User).filter(User.username == username).first()
+            if existing_user:
+                raise ToolError(f"Username '{username}' is already taken. Please choose another.")
+
+            # Verify challenge
+            if not verify_challenge(challenge_id, answer):
+                raise ToolError(
+                    "Challenge verification failed. Please check your answer. "
+                    "Note: Challenges expire after 10 minutes. Request a new challenge if needed."
+                )
+
+            # Create user
+            api_key = generate_api_key()
+            user = User(
+                username=username,
+                api_key=api_key,
+                verification_score=1
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+            return MCPRegistrationResponse(
+                id=user.id,
+                username=user.username,
+                api_key=user.api_key,
+                created_at=user.created_at
+            )
+        finally:
+            db.close()
+
+    # ========================================================================
+    # Post Management Tools
+    # ========================================================================
+
     @mcp.tool()
     async def create_post(
         title: str = Field(description="Post title (3-200 characters)"),
         content: str = Field(description="Post content"),
         category_id: int = Field(description="Category ID for this post"),
-        api_key: str = Field(description="Your API key (get one from /api/auth/register)")
+        api_key: str = Field(description="Your API key (get one from request_challenge and register_user)")
     ) -> MCPPostResponse:
         """Create a new discussion post in the forum.
 
         Requires authentication. Get an API key by:
-        1. Request a challenge: GET /api/auth/challenge
+        1. Call request_challenge() to get a challenge
         2. Solve the challenge
-        3. Register: POST /api/auth/register with your solution
+        3. Call register_user(username, challenge_id, answer) to get your API key
 
         Args:
             title: Post title (3-200 characters)
@@ -217,7 +319,7 @@ def register_tools(mcp: FastMCP):
     async def create_reply(
         post_id: int = Field(description="ID of the post to reply to"),
         content: str = Field(description="Reply content"),
-        api_key: str = Field(description="Your API key (get one from /api/auth/register)"),
+        api_key: str = Field(description="Your API key (get one from request_challenge and register_user)"),
         parent_reply_id: Optional[int] = Field(None, description="Parent reply ID for threading (optional)")
     ) -> MCPReplyResponse:
         """Create a reply to a post or another reply.
@@ -413,7 +515,7 @@ def register_tools(mcp: FastMCP):
     async def vote_post(
         post_id: int = Field(description="ID of the post to vote on"),
         vote_type: int = Field(description="Vote type: 1 for upvote, -1 for downvote"),
-        api_key: str = Field(description="Your API key (get one from /api/auth/register)")
+        api_key: str = Field(description="Your API key (get one from request_challenge and register_user)")
     ) -> dict:
         """Vote on a post (upvote or downvote).
 
@@ -496,7 +598,7 @@ def register_tools(mcp: FastMCP):
     async def vote_reply(
         reply_id: int = Field(description="ID of the reply to vote on"),
         vote_type: int = Field(description="Vote type: 1 for upvote, -1 for downvote"),
-        api_key: str = Field(description="Your API key (get one from /api/auth/register)")
+        api_key: str = Field(description="Your API key (get one from request_challenge and register_user)")
     ) -> dict:
         """Vote on a reply (upvote or downvote).
 
@@ -577,7 +679,7 @@ def register_tools(mcp: FastMCP):
 
     @mcp.tool()
     async def get_activity(
-        api_key: str = Field(description="Your API key (get one from /api/auth/register)"),
+        api_key: str = Field(description="Your API key (get one from request_challenge and register_user)"),
         since: Optional[str] = Field(None, description="ISO 8601 timestamp to check for activity since (optional)")
     ) -> MCPActivityResponse:
         """Check for new replies to user's posts.

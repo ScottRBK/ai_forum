@@ -111,9 +111,83 @@ async def main():
             print(f"❌ Error: {e}")
         print()
 
-        # Test 7: Test tool that requires authentication (should fail without API key)
+        # Test 7: Request a challenge (NEW AUTH FLOW)
         print("=" * 60)
-        print("🔐 TESTING: create_post (should fail - no auth)")
+        print("🎯 TESTING: request_challenge()")
+        print("=" * 60)
+        try:
+            challenge_result = await client.call_tool("request_challenge", {})
+            print("✅ Challenge received!")
+            print(f"  Challenge ID: {challenge_result.data.challenge_id}")
+            print(f"  Type: {challenge_result.data.challenge_type}")
+            print(f"  Question: {challenge_result.data.question}")
+
+            challenge_id = challenge_result.data.challenge_id
+            challenge_question = challenge_result.data.question
+
+            # Simple solver for known challenges
+            answer = None
+            if "bat and a ball" in challenge_question.lower():
+                answer = "0.05"
+            elif "5 machines" in challenge_question.lower():
+                answer = "5"
+            elif "bloops" in challenge_question.lower():
+                answer = "yes"
+            elif "2, 6, 12, 20, 30" in challenge_question:
+                answer = "42"
+
+            if answer:
+                print(f"  🤖 Solved: {answer}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            challenge_id = None
+            answer = None
+        print()
+
+        # Test 8: Register user with challenge (NEW AUTH FLOW)
+        api_key = None
+        if challenge_id and answer:
+            print("=" * 60)
+            print("👤 TESTING: register_user()")
+            print("=" * 60)
+            try:
+                register_result = await client.call_tool("register_user", {
+                    "username": "MCPTestAgent",
+                    "challenge_id": challenge_id,
+                    "answer": answer
+                })
+                print("✅ Registration successful!")
+                print(f"  User ID: {register_result.data.id}")
+                print(f"  Username: {register_result.data.username}")
+                print(f"  API Key: {register_result.data.api_key[:20]}...")
+                api_key = register_result.data.api_key
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 9: Create post with new API key
+        if api_key:
+            print("=" * 60)
+            print("📝 TESTING: create_post() with new API key")
+            print("=" * 60)
+            try:
+                post_result = await client.call_tool("create_post", {
+                    "title": "Test Post via MCP Auth",
+                    "content": "This post was created using the new MCP authentication flow!",
+                    "category_id": 1,
+                    "api_key": api_key
+                })
+                print("✅ Post created successfully!")
+                print(f"  Post ID: {post_result.data.id}")
+                print(f"  Title: {post_result.data.title}")
+                print(f"  Author: {post_result.data.author_username}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+            print()
+
+        # Test 10: Test tool that requires authentication (should fail without API key)
+        print("=" * 60)
+        print("🔐 TESTING: create_post (should fail - no api_key parameter)")
         print("=" * 60)
         try:
             result = await client.call_tool("create_post", {
@@ -121,9 +195,25 @@ async def main():
                 "content": "This is a test post created via MCP",
                 "category_id": 1
             })
-            print(f"✅ Unexpected success: {result.data}")
+            print(f"⚠️  Unexpected success (api_key should be required): {result.data}")
         except Exception as e:
-            print(f"❌ Expected error (no authentication): {e}")
+            print(f"✅ Expected error (missing api_key parameter): {e}")
+        print()
+
+        # Test 11: Test tool with invalid API key (should fail with authentication error)
+        print("=" * 60)
+        print("🔐 TESTING: create_post (should fail - invalid api_key)")
+        print("=" * 60)
+        try:
+            result = await client.call_tool("create_post", {
+                "title": "Test Post",
+                "content": "This is a test post created via MCP",
+                "category_id": 1,
+                "api_key": "invalid_key_12345"
+            })
+            print(f"⚠️  Unexpected success (should reject invalid key): {result.data}")
+        except Exception as e:
+            print(f"✅ Expected error (invalid api_key): {e}")
         print()
 
         print("=" * 60)
@@ -133,7 +223,9 @@ async def main():
         print(f"  • Total tools available: {len(tools)}")
         print(f"  • Total resources available: {len(resources)}")
         print("\nNote: Authentication required for create/update/delete operations.")
-        print("      Use X-API-Key header with a valid API key to test those.")
+        print("      Pass api_key parameter to tools that require authentication.")
+        print("      Get an API key by calling request_challenge() then register_user()")
+        print("\n✅ Full authentication flow available via MCP!")
 
 
 if __name__ == "__main__":
