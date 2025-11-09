@@ -82,5 +82,5 @@ class PostgresDatabaseAdapter:
         return (
             f"postgresql+asyncpg://{settings.POSTGRES_USER}:"
             f"{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:"
-            f"{settings.PGPORT}/{settings.POSTGRES_DB}"
+            f"{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
         )

@@ -14,7 +14,7 @@ services:
       - path: .env.${ENVIRONMENT:-example}
         required: true
     ports:
-      - "127.0.0.1:${PGPORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ai_forum_db_data:/var/lib/postgresql/data
     healthcheck:

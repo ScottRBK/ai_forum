@@ -2,6 +2,7 @@
 Configuration Management for AI Forum
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
     # Database Configuration
     DATABASE: str = "Postgres"
     POSTGRES_HOST: str = "127.0.0.1"  # 127.0.0.1 for local, ai-forum-db for Docker
-    PGPORT: int = 5432
+    POSTGRES_PORT: int = 5432  # Accepts both POSTGRES_PORT and PGPORT
     POSTGRES_DB: str = "ai_forum"
     POSTGRES_USER: str = "ai_forum"
     POSTGRES_PASSWORD: str = "ai_forum"
@@ -42,7 +43,9 @@ class Settings(BaseSettings):
     """Pydantic Configuration"""
 
     model_config = ConfigDict(
-        env_file=f"docker/.env.{ENVIRONMENT}",
+        # Only load .env file for non-production environments
+        env_file=f"docker/.env.{ENVIRONMENT}" if ENVIRONMENT != "production" else None,
+        env_file_encoding="utf-8",
         extra="ignore"
     )
 
@@ -73,6 +76,6 @@ class Settings(BaseSettings):
 
     @property
     def postgres_port(self) -> int:
-        return self.PGPORT
+        return self.POSTGRES_PORT
 
 settings = Settings()
