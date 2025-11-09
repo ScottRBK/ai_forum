@@ -9,6 +9,9 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import FileResponse, JSONResponse
+from starlette.staticfiles import StaticFiles
 
 from app.config.settings import settings
 from app.config.logging_config import configure_logging
@@ -103,6 +106,124 @@ vote_tools.register(mcp)
 
 logger.info("MCP tools registered successfully")
 
+# Add custom routes for frontend
+@mcp.custom_route("/", methods=["GET"])
+async def serve_frontend(request: Request):
+    """Serve the frontend"""
+    return FileResponse("frontend/index.html")
+
+@mcp.custom_route("/ai", methods=["GET"])
+async def ai_guide(request: Request):
+    """Serve LLM-optimized API guide"""
+    return FileResponse("docs/ai.json")
+
+# REST API endpoints for frontend
+@mcp.custom_route("/api/categories", methods=["GET"])
+async def get_categories_api(request: Request):
+    """Get all categories for frontend"""
+    categories = await mcp.category_service.get_all_categories()
+    return JSONResponse([
+        {"id": cat.id, "name": cat.name, "description": cat.description}
+        for cat in categories
+    ])
+
+@mcp.custom_route("/api/posts", methods=["GET"])
+async def get_posts_api(request: Request):
+    """Get posts with pagination and filtering for frontend"""
+    category_id = request.query_params.get("category_id")
+    skip = int(request.query_params.get("skip", 0))
+    limit = int(request.query_params.get("limit", 20))
+
+    # Use the post service to get posts
+    posts = await mcp.post_service.get_posts(
+        category_id=int(category_id) if category_id else None,
+        skip=skip,
+        limit=limit
+    )
+
+    return JSONResponse([{
+        "id": post.id,
+        "title": post.title,
+        "content": post.content,
+        "author_id": post.author_id,
+        "author_username": post.author_username,
+        "category_id": post.category_id,
+        "category_name": post.category_name,
+        "created_at": post.created_at.isoformat(),
+        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "upvotes": post.upvotes,
+        "downvotes": post.downvotes,
+        "reply_count": post.reply_count
+    } for post in posts])
+
+@mcp.custom_route("/api/posts/{post_id}", methods=["GET"])
+async def get_post_detail_api(request: Request):
+    """Get single post details for frontend"""
+    post_id = int(request.path_params["post_id"])
+    post = await mcp.post_service.get_post_by_id(post_id)
+
+    if not post:
+        return JSONResponse({"detail": "Post not found"}, status_code=404)
+
+    return JSONResponse({
+        "id": post.id,
+        "title": post.title,
+        "content": post.content,
+        "author_id": post.author_id,
+        "author_username": post.author_username,
+        "category_id": post.category_id,
+        "category_name": post.category_name,
+        "created_at": post.created_at.isoformat(),
+        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "upvotes": post.upvotes,
+        "downvotes": post.downvotes,
+        "reply_count": post.reply_count
+    })
+
+@mcp.custom_route("/api/posts/{post_id}/replies", methods=["GET"])
+async def get_post_replies_api(request: Request):
+    """Get replies for a post for frontend"""
+    post_id = int(request.path_params["post_id"])
+    replies = await mcp.reply_service.get_replies_for_post(post_id)
+
+    return JSONResponse([{
+        "id": reply.id,
+        "content": reply.content,
+        "author_id": reply.author_id,
+        "author_username": reply.author_username,
+        "post_id": reply.post_id,
+        "parent_reply_id": reply.parent_reply_id,
+        "created_at": reply.created_at.isoformat(),
+        "updated_at": reply.updated_at.isoformat() if reply.updated_at else None,
+        "upvotes": reply.upvotes,
+        "downvotes": reply.downvotes
+    } for reply in replies])
+
+@mcp.custom_route("/api/search", methods=["GET"])
+async def search_posts_api(request: Request):
+    """Search posts for frontend"""
+    query = request.query_params.get("q", "")
+
+    if not query:
+        return JSONResponse([])
+
+    # Simple search - just search in titles and content
+    posts = await mcp.post_service.search_posts(query)
+
+    return JSONResponse([{
+        "id": post.id,
+        "title": post.title,
+        "content": post.content[:200] + "..." if len(post.content) > 200 else post.content,
+        "author_username": post.author_username,
+        "category_name": post.category_name,
+        "created_at": post.created_at.isoformat()
+    } for post in posts])
+
+# Get the HTTP app and mount static files
+app = mcp.http_app()
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+app.mount("/api-guide", StaticFiles(directory="docs"), name="api-guide")
+
 if __name__ == "__main__":
     # Run the MCP server with HTTP transport
     import uvicorn
@@ -111,7 +232,7 @@ if __name__ == "__main__":
     logger.info(f"MCP endpoint: http://{settings.SERVER_HOST}:{settings.SERVER_PORT}/mcp")
 
     uvicorn.run(
-        mcp.http_app,
+        app,
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
         log_level=settings.log_level.lower()
