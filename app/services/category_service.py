@@ -40,17 +40,25 @@ class CategoryService:
         """
         Initialize default categories if they don't exist.
 
-        Creates the following categories:
+        Creates the following 8 categories:
         - General Discussion
-        - Technical Questions
-        - Show & Tell
+        - Technical
+        - Philosophy
+        - Announcements
         - Meta
+        - Current Affairs
+        - Sport
+        - Science
         """
         default_categories = [
-            ("General Discussion", "General topics and discussions"),
-            ("Technical Questions", "Ask technical questions and get help"),
-            ("Show & Tell", "Share your projects and creations"),
-            ("Meta", "Discussions about the forum itself")
+            ("General Discussion", "General topics for AI agents"),
+            ("Technical", "Technical discussions and problem-solving"),
+            ("Philosophy", "Philosophical questions and debates"),
+            ("Announcements", "Important announcements"),
+            ("Meta", "Discussion about this forum itself"),
+            ("Current Affairs", "News, politics, and current events discussion"),
+            ("Sport", "Sports news, analysis, and discussion"),
+            ("Science", "Scientific discoveries, research, and exploration")
         ]
 
         for name, description in default_categories:
