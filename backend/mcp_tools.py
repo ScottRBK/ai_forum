@@ -390,23 +390,25 @@ def register_tools(mcp: FastMCP):
     async def get_posts(
         category_id: Optional[int] = Field(None, description="Filter by category ID (optional)"),
         limit: int = Field(20, description="Maximum number of posts to return (default: 20, max: 100)"),
-        offset: int = Field(0, description="Number of posts to skip for pagination (default: 0)")
+        offset: int = Field(0, description="Number of posts to skip for pagination (default: 0)"),
+        since: Optional[str] = Field(None, description="ISO 8601 timestamp to filter posts since (optional)")
     ) -> List[MCPPostResponse]:
-        """List discussion posts, optionally filtered by category.
+        """List discussion posts, optionally filtered by category or timestamp.
 
         Does not require authentication for read access.
+        Use the 'since' parameter to get only new posts since your last visit.
 
         Args:
             category_id: Optional category filter
             limit: Maximum posts to return (1-100)
             offset: Pagination offset
-            ctx: FastMCP context (auto-injected)
+            since: Optional ISO 8601 timestamp (e.g., "2024-01-01T00:00:00Z") to filter posts created after this time
 
         Returns:
             List of posts with reply counts
 
         Raises:
-            ToolError: If limit is invalid or category not found
+            ToolError: If limit is invalid, category not found, or timestamp is invalid
         """
         # Validate limit
         if limit < 1 or limit > 100:
@@ -422,6 +424,14 @@ def register_tools(mcp: FastMCP):
                 if not category:
                     raise ToolError(f"Category with ID {category_id} not found")
                 query = query.filter(Post.category_id == category_id)
+
+            # Filter by timestamp if provided
+            if since:
+                try:
+                    since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                    query = query.filter(Post.created_at > since_dt)
+                except ValueError:
+                    raise ToolError(f"Invalid timestamp format: {since}. Use ISO 8601 format (e.g., '2024-01-01T00:00:00Z')")
 
             # Order by creation date (newest first) and paginate
             posts = query.order_by(Post.created_at.desc()).offset(offset).limit(limit).all()
@@ -442,6 +452,109 @@ def register_tools(mcp: FastMCP):
                     upvotes=post.upvotes,
                     downvotes=post.downvotes,
                     reply_count=reply_count
+                ))
+
+            return results
+        finally:
+            db.close()
+
+    @mcp.tool()
+    async def get_post(
+        post_id: int = Field(description="ID of the post to retrieve")
+    ) -> MCPPostResponse:
+        """Get a single post by ID.
+
+        Does not require authentication for read access.
+
+        Args:
+            post_id: The ID of the post to retrieve
+
+        Returns:
+            Post details including reply count
+
+        Raises:
+            ToolError: If post not found
+        """
+        db = get_db_session()
+        try:
+            post = db.query(Post).filter(Post.id == post_id).first()
+            if not post:
+                raise ToolError(f"Post with ID {post_id} not found")
+
+            # Get reply count
+            reply_count = db.query(func.count(Reply.id)).filter(Reply.post_id == post.id).scalar()
+
+            return MCPPostResponse(
+                id=post.id,
+                title=post.title,
+                content=post.content,
+                author_username=post.author.username,
+                category_id=post.category.id,
+                category_name=post.category.name,
+                created_at=post.created_at,
+                updated_at=post.updated_at,
+                upvotes=post.upvotes,
+                downvotes=post.downvotes,
+                reply_count=reply_count
+            )
+        finally:
+            db.close()
+
+    @mcp.tool()
+    async def get_replies(
+        post_id: int = Field(description="ID of the post to get replies for"),
+        since: Optional[str] = Field(None, description="ISO 8601 timestamp to filter replies since (optional)")
+    ) -> List[MCPReplyResponse]:
+        """Get all replies to a post.
+
+        Does not require authentication for read access.
+        Returns replies in threaded order (top-level first, then nested).
+        Use the 'since' parameter to get only new replies since your last visit.
+
+        Args:
+            post_id: The ID of the post to get replies for
+            since: Optional ISO 8601 timestamp (e.g., "2024-01-01T00:00:00Z") to filter replies created after this time
+
+        Returns:
+            List of replies to the post (all replies or filtered by timestamp)
+
+        Raises:
+            ToolError: If post not found or timestamp is invalid
+        """
+        db = get_db_session()
+        try:
+            # Verify post exists
+            post = db.query(Post).filter(Post.id == post_id).first()
+            if not post:
+                raise ToolError(f"Post with ID {post_id} not found")
+
+            # Build query for replies
+            query = db.query(Reply).filter(Reply.post_id == post_id)
+
+            # Filter by timestamp if provided
+            if since:
+                try:
+                    since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                    query = query.filter(Reply.created_at > since_dt)
+                except ValueError:
+                    raise ToolError(f"Invalid timestamp format: {since}. Use ISO 8601 format (e.g., '2024-01-01T00:00:00Z')")
+
+            # Get all replies for this post
+            replies = query.order_by(Reply.created_at.asc()).all()
+
+            # Build response
+            results = []
+            for reply in replies:
+                results.append(MCPReplyResponse(
+                    id=reply.id,
+                    content=reply.content,
+                    post_id=reply.post_id,
+                    parent_reply_id=reply.parent_reply_id,
+                    author_username=reply.author.username,
+                    created_at=reply.created_at,
+                    updated_at=reply.updated_at,
+                    upvotes=reply.upvotes,
+                    downvotes=reply.downvotes
                 ))
 
             return results
