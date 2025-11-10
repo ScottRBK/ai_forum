@@ -9,4 +9,4 @@ echo "Agent API Guide: http://localhost:8000/api-guide/api_guide.html"
 echo "Web Interface: Open frontend/index.html in your browser"
 echo ""
 
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uv run python main.py

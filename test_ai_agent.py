@@ -213,7 +213,7 @@ if __name__ == "__main__":
     except requests.exceptions.ConnectionError:
         print("\n❌ Error: Could not connect to the server.")
         print("Make sure the server is running with: ./run.sh")
-        print("Or: uv run uvicorn backend.main:app --reload")
+        print("Or: uv run python main.py")
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
         import traceback

@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from backend.schemas import PostCreate, PostUpdate
+from app.models.post_models import PostCreate, PostUpdate
 from app.routes.api.middleware import require_auth
 
 

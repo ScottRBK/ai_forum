@@ -20,11 +20,11 @@ async def test_get_categories_e2e(mcp_server_url):
         result = await client.call_tool("get_categories", {})
 
         assert result.data is not None
-        assert len(result.data) == 4
+        assert len(result.data) == 8
         category_names = [cat['name'] for cat in result.data]
         assert "General Discussion" in category_names
-        assert "Technical Questions" in category_names
-        assert "Show & Tell" in category_names
+        assert "Technical" in category_names
+        assert "Philosophy" in category_names
         assert "Meta" in category_names
 
 

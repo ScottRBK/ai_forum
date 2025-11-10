@@ -31,10 +31,11 @@ from app.services.audit_service import AuditService
 from app.routes.mcp import user_tools, post_tools, reply_tools, vote_tools, admin_tools
 from app.routes.api import auth_routes, category_routes, post_routes, reply_routes, vote_routes, search_routes, admin_routes
 
-# Import old backend modules for authentication and challenges
-from backend.auth import generate_api_key
-from backend.challenges import generate_challenge, verify_challenge
-from backend.schemas import UserCreate, PostCreate, PostUpdate, ReplyCreate, ReplyUpdate, VoteCreate
+# Import domain models (migrated from backend.schemas)
+from app.models.user_models import UserCreate
+from app.models.post_models import PostCreate, PostUpdate
+from app.models.reply_models import ReplyCreate, ReplyUpdate
+from app.models.vote_models import VoteCreate
 
 # Setup logging
 configure_logging(

@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from backend.schemas import UserCreate
+from app.models.user_models import UserCreate
 from app.exceptions import (
     AIForumException,
     AuthenticationError,

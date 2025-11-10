@@ -29,7 +29,7 @@ Add this to your MCP settings file:
 ### 2. Start the Server
 
 ```bash
-uv run python backend/main.py
+uv run python main.py
 ```
 
 ### 3. Restart Claude Desktop
@@ -165,7 +165,7 @@ This tests:
 
 Make sure the server is running:
 ```bash
-uv run python backend/main.py
+uv run python main.py
 ```
 
 ### "Challenge verification failed"

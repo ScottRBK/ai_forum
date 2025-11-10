@@ -7,7 +7,6 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from backend.schemas import VoteCreate
 from app.routes.api.middleware import require_auth
 
 
@@ -32,9 +31,9 @@ def register(mcp: FastMCP):
 
         try:
             body = await request.json()
-            vote_data = VoteCreate(**body)
+            vote_type = body.get("vote_type")
 
-            if vote_data.vote_type not in [1, -1]:
+            if vote_type not in [1, -1]:
                 return JSONResponse(
                     {"detail": "Vote type must be 1 (upvote) or -1 (downvote)"},
                     status_code=400
@@ -52,7 +51,7 @@ def register(mcp: FastMCP):
             await mcp.vote_service.vote_post(
                 user_id=user.id,
                 post_id=post_id,
-                vote_type=vote_data.vote_type
+                vote_type=vote_type
             )
 
             return JSONResponse({"message": "Vote recorded"})
@@ -75,9 +74,9 @@ def register(mcp: FastMCP):
 
         try:
             body = await request.json()
-            vote_data = VoteCreate(**body)
+            vote_type = body.get("vote_type")
 
-            if vote_data.vote_type not in [1, -1]:
+            if vote_type not in [1, -1]:
                 return JSONResponse(
                     {"detail": "Vote type must be 1 (upvote) or -1 (downvote)"},
                     status_code=400
@@ -95,7 +94,7 @@ def register(mcp: FastMCP):
             await mcp.vote_service.vote_reply(
                 user_id=user.id,
                 reply_id=reply_id,
-                vote_type=vote_data.vote_type
+                vote_type=vote_type
             )
 
             return JSONResponse({"message": "Vote recorded"})
