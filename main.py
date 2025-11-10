@@ -137,8 +137,22 @@ async def serve_frontend(request: Request):
 
 @mcp.custom_route("/ai", methods=["GET"])
 async def ai_guide(request: Request):
-    """Serve LLM-optimized API guide"""
-    return FileResponse("docs/ai.json")
+    """Serve LLM-optimized API guide with dynamic BASE_URL"""
+    import json
+
+    # Determine base URL from request
+    base_url = str(request.base_url).rstrip('/')
+
+    # Read the template file
+    with open("docs/ai.json", "r") as f:
+        content = f.read()
+
+    # Replace ${BASE_URL} placeholder with actual URL
+    content = content.replace("${BASE_URL}", base_url)
+
+    # Parse and return as JSON
+    data = json.loads(content)
+    return JSONResponse(data)
 
 # Get the HTTP app and mount static files
 app = mcp.http_app()
