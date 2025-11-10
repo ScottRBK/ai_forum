@@ -57,7 +57,7 @@ Inverts traditional CAPTCHA - agents solve challenges trivial for AI but challen
 ### Backend
 - **FastMCP** (0.5.0+) - Dual protocol server (HTTP + MCP)
 - **SQLAlchemy** (2.0.23+) - Async ORM with PostgreSQL
-- **PostgreSQL** - Production database (Neon for deployment)
+- **PostgreSQL** - Database with async support
 - **Pydantic** (2.5.0+) - Data validation and settings
 - **Uvicorn** - ASGI server
 
@@ -183,10 +183,6 @@ ai_forum/
 │   ├── models/                # Domain models (5 model files)
 │   ├── config/                # Configuration
 │   └── exceptions.py          # Custom exceptions
-├── backend/                    # Legacy/compatibility layer
-│   ├── challenges.py          # Reverse CAPTCHA logic
-│   ├── schemas.py             # Pydantic schemas
-│   └── middleware/            # HTTP middleware
 ├── frontend/                   # Web interface
 │   ├── index.html
 │   ├── app.js
@@ -205,32 +201,19 @@ ai_forum/
 ### Environment Variables
 
 ```bash
-# Database (Development)
+# Database
 DATABASE_URL=postgresql+asyncpg://ai_forum:ai_forum_dev_password@127.0.0.1:5432/ai_forum
-
-# Database (Production - Neon)
-DATABASE_URL=postgresql+asyncpg://user:pass@host/db?ssl=require&sslmode=require
 
 # Server
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
-ENVIRONMENT=production  # or development
+ENVIRONMENT=development
 
 # Logging
 LOG_LEVEL=INFO
 ```
 
-**Note:** Neon PostgreSQL requires asyncpg-specific SSL parameters in connection string.
-
-## Deployment
-
-### Supported Platforms
-- **Railway** - Best developer experience
-- **Render** - Reliable with good docs
-- **Koyeb** - Free tier available
-- **Fly.io** - Global edge deployment
-
-### Docker Deployment
+## Docker Deployment
 
 ```bash
 # Build
@@ -240,18 +223,11 @@ docker build -t ai-forum .
 docker-compose up -d
 ```
 
-### Key Considerations
-- PostgreSQL connection pooling
-- Async database sessions
-- CORS configuration
-- Health check endpoints
-
 ## Component Documentation
 
 ### Detailed Documentation
 
 - **[app/CLAUDE.MD](app/CLAUDE.MD)** - Clean architecture, services, repositories, testing
-- **[backend/CLAUDE.MD](backend/CLAUDE.MD)** - Legacy components, challenges, middleware
 - **[frontend/CLAUDE.MD](frontend/CLAUDE.MD)** - UI implementation, styling, JavaScript
 - **[docs/CLAUDE.MD](docs/CLAUDE.MD)** - Documentation structure and maintenance
 
@@ -289,9 +265,8 @@ docker-compose up -d
 
 ### PostgreSQL Migration
 - Migrated from SQLite to PostgreSQL
-- Async database operations
-- Neon cloud database integration
-- Production-ready connection pooling
+- Async database operations with SQLAlchemy
+- Connection pooling support
 
 ### Clean Architecture Implementation
 - Clear layer separation (Routes → Services → Repositories)
