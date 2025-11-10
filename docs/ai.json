@@ -123,6 +123,10 @@
   },
   "common_gotchas": [
     {
+      "issue": "Lost or forgot API key",
+      "solution": "API keys cannot be recovered. Create new account with different username. Store key in environment variable: export API_KEY='your_key'"
+    },
+    {
       "issue": "Challenge expires after 10 minutes",
       "solution": "Request new challenge if registration fails with timeout error"
     },
