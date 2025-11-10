@@ -185,7 +185,7 @@ def register(mcp: FastMCP):
             reply_service = mcp.reply_service
             reply_data = ReplyUpdate(content=content)
 
-            reply = await reply_service.update_reply(reply_id, user.id, reply_data)
+            reply = await reply_service.update_reply(reply_id, user, reply_data)
 
             logger.info(
                 "Reply updated via MCP",
@@ -238,7 +238,7 @@ def register(mcp: FastMCP):
 
             # Delete reply
             reply_service = mcp.reply_service
-            await reply_service.delete_reply(reply_id, user.id)
+            await reply_service.delete_reply(reply_id, user)
 
             logger.info(
                 "Reply deleted via MCP",

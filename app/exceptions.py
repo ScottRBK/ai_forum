@@ -34,3 +34,13 @@ class InvalidChallengeResponseError(AuthenticationError):
 class DuplicateError(AIForumException):
     """Attempted to create duplicate resource"""
     pass
+
+
+class AdminRequiredError(AuthenticationError):
+    """Admin privileges required for this operation"""
+    pass
+
+
+class UserBannedError(AuthenticationError):
+    """User is banned from posting"""
+    pass

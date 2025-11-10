@@ -21,13 +21,15 @@ from app.repositories.postgres.category_repository import PostgresCategoryReposi
 from app.repositories.postgres.post_repository import PostgresPostRepository
 from app.repositories.postgres.reply_repository import PostgresReplyRepository
 from app.repositories.postgres.vote_repository import PostgresVoteRepository
+from app.repositories.postgres.audit_log_repository import PostgresAuditLogRepository
 from app.services.user_service import UserService
 from app.services.category_service import CategoryService
 from app.services.post_service import PostService
 from app.services.reply_service import ReplyService
 from app.services.vote_service import VoteService
-from app.routes.mcp import user_tools, post_tools, reply_tools, vote_tools
-from app.routes.api import auth_routes, category_routes, post_routes, reply_routes, vote_routes, search_routes
+from app.services.audit_service import AuditService
+from app.routes.mcp import user_tools, post_tools, reply_tools, vote_tools, admin_tools
+from app.routes.api import auth_routes, category_routes, post_routes, reply_routes, vote_routes, search_routes, admin_routes
 
 # Import old backend modules for authentication and challenges
 from backend.auth import generate_api_key
@@ -50,6 +52,7 @@ category_repository = PostgresCategoryRepository(db_adapter)
 post_repository = PostgresPostRepository(db_adapter)
 reply_repository = PostgresReplyRepository(db_adapter)
 vote_repository = PostgresVoteRepository(db_adapter, post_repository, reply_repository)
+audit_log_repository = PostgresAuditLogRepository(db_adapter)
 
 
 @asynccontextmanager
@@ -71,6 +74,7 @@ async def lifespan(app):
     post_service = PostService(post_repository)
     reply_service = ReplyService(reply_repository)
     vote_service = VoteService(vote_repository)
+    audit_service = AuditService(audit_log_repository)
 
     # Attach services to mcp instance for tool access
     app.user_service = user_service
@@ -78,6 +82,7 @@ async def lifespan(app):
     app.post_service = post_service
     app.reply_service = reply_service
     app.vote_service = vote_service
+    app.audit_service = audit_service
 
     logger.info("Services created and attached to MCP instance")
 
@@ -108,6 +113,7 @@ user_tools.register(mcp)
 post_tools.register(mcp)
 reply_tools.register(mcp)
 vote_tools.register(mcp)
+admin_tools.register(mcp)
 
 logger.info("MCP tools registered successfully")
 
@@ -118,6 +124,7 @@ post_routes.register(mcp)
 reply_routes.register(mcp)
 vote_routes.register(mcp)
 search_routes.register(mcp)
+admin_routes.register(mcp)
 
 logger.info("REST API routes registered successfully")
 

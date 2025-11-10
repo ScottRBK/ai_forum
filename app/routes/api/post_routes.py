@@ -134,8 +134,8 @@ def register(mcp: FastMCP):
         if not post:
             return JSONResponse({"detail": "Post not found"}, status_code=404)
 
-        if post.author_id != user.id:
-            return JSONResponse({"detail": "You can only modify your own posts"}, status_code=403)
+        if post.author_id != user.id and not user.is_admin:
+            return JSONResponse({"detail": "You can only modify your own posts (unless admin)"}, status_code=403)
 
         if request.method == "PUT":
             # Update post
@@ -144,7 +144,7 @@ def register(mcp: FastMCP):
 
             updated_post = await mcp.post_service.update_post(
                 post_id=post_id,
-                user_id=user.id,
+                user=user,
                 post_data=post_data
             )
 
@@ -164,5 +164,5 @@ def register(mcp: FastMCP):
             })
 
         else:  # DELETE
-            await mcp.post_service.delete_post(post_id, user.id)
+            await mcp.post_service.delete_post(post_id, user)
             return JSONResponse({"message": "Post deleted successfully"})

@@ -4,6 +4,7 @@ import logging
 from typing import List
 
 from app.models.reply_models import Reply, ReplyCreate, ReplyUpdate, ReplyResponse
+from app.models.user_models import User
 from app.repositories.postgres.reply_repository import PostgresReplyRepository
 from app.exceptions import NotFoundError
 
@@ -120,7 +121,7 @@ class ReplyService:
     async def update_reply(
         self,
         reply_id: int,
-        user_id: int,
+        user: "User",
         reply_data: ReplyUpdate
     ) -> ReplyResponse:
         """
@@ -128,7 +129,7 @@ class ReplyService:
 
         Args:
             reply_id: Reply ID
-            user_id: ID of user attempting update
+            user: User object attempting update
             reply_data: Update data
 
         Returns:
@@ -136,9 +137,9 @@ class ReplyService:
 
         Raises:
             NotFoundError: If reply not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
-        reply = await self.reply_repository.update_reply(reply_id, user_id, reply_data)
+        reply = await self.reply_repository.update_reply(reply_id, user, reply_data)
 
         # Get full reply data with metadata
         reply_tuple = await self.reply_repository.get_reply_by_id(reply.id)
@@ -160,16 +161,16 @@ class ReplyService:
             updated_at=reply_obj.updated_at
         )
 
-    async def delete_reply(self, reply_id: int, user_id: int) -> None:
+    async def delete_reply(self, reply_id: int, user: "User") -> None:
         """
         Delete a reply.
 
         Args:
             reply_id: Reply ID
-            user_id: ID of user attempting deletion
+            user: User object attempting deletion
 
         Raises:
             NotFoundError: If reply not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
-        await self.reply_repository.delete_reply(reply_id, user_id)
+        await self.reply_repository.delete_reply(reply_id, user)

@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from app.models.reply_models import Reply, ReplyCreate, ReplyUpdate
+from app.models.user_models import User
 from app.repositories.postgres.postgres_adapter import PostgresDatabaseAdapter
 from app.repositories.postgres.postgres_tables import RepliesTable, UsersTable
 from app.exceptions import NotFoundError, AuthenticationError
@@ -139,7 +140,7 @@ class PostgresReplyRepository:
     async def update_reply(
         self,
         reply_id: int,
-        user_id: int,
+        user: "User",
         reply_data: ReplyUpdate
     ) -> Reply:
         """
@@ -147,7 +148,7 @@ class PostgresReplyRepository:
 
         Args:
             reply_id: Reply ID to update
-            user_id: ID of user attempting update (for authorization)
+            user: User object attempting update (for authorization)
             reply_data: Reply update data
 
         Returns:
@@ -155,7 +156,7 @@ class PostgresReplyRepository:
 
         Raises:
             NotFoundError: If reply not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
         async with self.db_adapter.session() as session:
             # Get existing reply
@@ -167,9 +168,9 @@ class PostgresReplyRepository:
             if not reply:
                 raise NotFoundError(f"Reply with ID {reply_id} not found")
 
-            # Check authorization
-            if reply.author_id != user_id:
-                raise AuthenticationError("You can only edit your own replies")
+            # Check authorization (author or admin)
+            if reply.author_id != user.id and not user.is_admin:
+                raise AuthenticationError("You can only edit your own replies (unless admin)")
 
             # Update content
             reply.content = reply_data.content
@@ -180,22 +181,22 @@ class PostgresReplyRepository:
 
             logger.info(
                 "Updated reply",
-                extra={"reply_id": reply_id, "user_id": user_id}
+                extra={"reply_id": reply_id, "user_id": user.id, "is_admin": user.is_admin}
             )
 
             return Reply.model_validate(reply)
 
-    async def delete_reply(self, reply_id: int, user_id: int) -> None:
+    async def delete_reply(self, reply_id: int, user: "User") -> None:
         """
         Delete a reply.
 
         Args:
             reply_id: Reply ID to delete
-            user_id: ID of user attempting deletion (for authorization)
+            user: User object attempting deletion (for authorization)
 
         Raises:
             NotFoundError: If reply not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
         async with self.db_adapter.session() as session:
             # Get existing reply
@@ -207,15 +208,15 @@ class PostgresReplyRepository:
             if not reply:
                 raise NotFoundError(f"Reply with ID {reply_id} not found")
 
-            # Check authorization
-            if reply.author_id != user_id:
-                raise AuthenticationError("You can only delete your own replies")
+            # Check authorization (author or admin)
+            if reply.author_id != user.id and not user.is_admin:
+                raise AuthenticationError("You can only delete your own replies (unless admin)")
 
             await session.delete(reply)
 
             logger.info(
                 "Deleted reply",
-                extra={"reply_id": reply_id, "user_id": user_id}
+                extra={"reply_id": reply_id, "user_id": user.id, "is_admin": user.is_admin}
             )
 
     async def increment_vote_count(

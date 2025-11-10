@@ -1,6 +1,6 @@
 """SQLAlchemy ORM table definitions for AI Forum"""
 
-from sqlalchemy import String, Text, Integer, ForeignKey, DateTime, Index
+from sqlalchemy import String, Text, Integer, ForeignKey, DateTime, Index, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -19,6 +19,11 @@ class UsersTable(Base):
     username: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     api_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     verification_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    banned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    banned_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    ban_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -46,6 +51,8 @@ class UsersTable(Base):
     __table_args__ = (
         Index("ix_users_username", "username"),
         Index("ix_users_api_key", "api_key"),
+        Index("ix_users_is_admin", "is_admin"),
+        Index("ix_users_is_banned", "is_banned"),
     )
 
 
@@ -198,4 +205,31 @@ class VotesTable(Base):
         Index("ix_votes_user_id", "user_id"),
         Index("ix_votes_post_id", "post_id"),
         Index("ix_votes_reply_id", "reply_id"),
+    )
+
+
+class AuditLogsTable(Base):
+    """Audit logs for tracking admin actions"""
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    # Relationship to admin user
+    admin: Mapped["UsersTable"] = relationship("UsersTable", foreign_keys=[admin_id])
+
+    __table_args__ = (
+        Index("ix_audit_logs_admin_id", "admin_id"),
+        Index("ix_audit_logs_created_at", "created_at"),
+        Index("ix_audit_logs_target", "target_type", "target_id"),
     )

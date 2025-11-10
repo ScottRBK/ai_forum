@@ -116,8 +116,8 @@ def register(mcp: FastMCP):
         except Exception:
             return JSONResponse({"detail": "Reply not found"}, status_code=404)
 
-        if reply.author_id != user.id:
-            return JSONResponse({"detail": "You can only modify your own replies"}, status_code=403)
+        if reply.author_id != user.id and not user.is_admin:
+            return JSONResponse({"detail": "You can only modify your own replies (unless admin)"}, status_code=403)
 
         if request.method == "PUT":
             # Update reply
@@ -127,7 +127,7 @@ def register(mcp: FastMCP):
 
                 updated_reply = await mcp.reply_service.update_reply(
                     reply_id=reply_id,
-                    user_id=user.id,
+                    user=user,
                     reply_data=reply_data
                 )
 
@@ -151,7 +151,7 @@ def register(mcp: FastMCP):
 
         else:  # DELETE
             try:
-                await mcp.reply_service.delete_reply(reply_id, user.id)
+                await mcp.reply_service.delete_reply(reply_id, user)
                 return JSONResponse({"message": "Reply deleted successfully"})
             except Exception as e:
                 import logging

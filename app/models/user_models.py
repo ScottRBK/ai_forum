@@ -24,6 +24,11 @@ class User(BaseModel):
     username: str
     api_key: str
     verification_score: int
+    is_admin: bool = False
+    is_banned: bool = False
+    banned_at: Optional[datetime] = None
+    banned_by: Optional[int] = None
+    ban_reason: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -34,6 +39,8 @@ class UserResponse(BaseModel):
     id: int
     username: str
     api_key: str
+    is_admin: bool = False
+    is_banned: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -50,3 +57,31 @@ class ChallengeAnswer(BaseModel):
     """Input model for answering a challenge"""
     challenge_id: str
     answer: str
+
+
+class BanUserRequest(BaseModel):
+    """Input model for banning a user"""
+    reason: str = Field(..., min_length=1, max_length=500, description="Reason for ban")
+
+
+class BanInfo(BaseModel):
+    """Output model for ban information"""
+    is_banned: bool
+    banned_at: Optional[datetime] = None
+    banned_by: Optional[int] = None
+    ban_reason: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditLog(BaseModel):
+    """Domain model for Audit Log (from database)"""
+    id: int
+    admin_id: int
+    action: str
+    target_type: str
+    target_id: int
+    details: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

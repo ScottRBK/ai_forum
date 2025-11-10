@@ -246,7 +246,7 @@ def register(mcp: FastMCP):
             post_service = mcp.post_service
             post_data = PostUpdate(title=title, content=content)
 
-            post = await post_service.update_post(post_id, user.id, post_data)
+            post = await post_service.update_post(post_id, user, post_data)
 
             logger.info(
                 "Post updated via MCP",
@@ -299,7 +299,7 @@ def register(mcp: FastMCP):
 
             # Delete post
             post_service = mcp.post_service
-            await post_service.delete_post(post_id, user.id)
+            await post_service.delete_post(post_id, user)
 
             logger.info(
                 "Post deleted via MCP",

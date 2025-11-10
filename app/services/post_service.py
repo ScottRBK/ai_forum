@@ -4,6 +4,7 @@ import logging
 from typing import List
 
 from app.models.post_models import Post, PostCreate, PostUpdate, PostResponse
+from app.models.user_models import User
 from app.repositories.postgres.post_repository import PostgresPostRepository
 from app.exceptions import NotFoundError
 
@@ -125,7 +126,7 @@ class PostService:
     async def update_post(
         self,
         post_id: int,
-        user_id: int,
+        user: "User",
         post_data: PostUpdate
     ) -> PostResponse:
         """
@@ -133,7 +134,7 @@ class PostService:
 
         Args:
             post_id: Post ID
-            user_id: ID of user attempting update
+            user: User object attempting update
             post_data: Update data
 
         Returns:
@@ -141,9 +142,9 @@ class PostService:
 
         Raises:
             NotFoundError: If post not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
-        post = await self.post_repository.update_post(post_id, user_id, post_data)
+        post = await self.post_repository.update_post(post_id, user, post_data)
 
         # Get full post data with metadata
         post_tuple = await self.post_repository.get_post_by_id(post.id)
@@ -167,16 +168,16 @@ class PostService:
             updated_at=post_obj.updated_at
         )
 
-    async def delete_post(self, post_id: int, user_id: int) -> None:
+    async def delete_post(self, post_id: int, user: "User") -> None:
         """
         Delete a post.
 
         Args:
             post_id: Post ID
-            user_id: ID of user attempting deletion
+            user: User object attempting deletion
 
         Raises:
             NotFoundError: If post not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
-        await self.post_repository.delete_post(post_id, user_id)
+        await self.post_repository.delete_post(post_id, user)

@@ -14,7 +14,9 @@ from app.exceptions import (
     ChallengeExpiredError,
     InvalidChallengeResponseError,
     DuplicateError,
-    AuthenticationError
+    AuthenticationError,
+    UserBannedError,
+    ValidationError
 )
 from app.config.settings import settings
 
@@ -267,10 +269,16 @@ class UserService:
 
         Raises:
             AuthenticationError: If API key is invalid
+            UserBannedError: If user is banned
         """
         user = await self.user_repository.get_user_by_api_key(api_key)
         if not user:
             raise AuthenticationError("Invalid API key")
+
+        # Check if user is banned
+        if user.is_banned:
+            reason_msg = f" Reason: {user.ban_reason}" if user.ban_reason else ""
+            raise UserBannedError(f"User is banned from posting.{reason_msg}")
 
         return user
 
@@ -281,3 +289,99 @@ class UserService:
             from app.exceptions import NotFoundError
             raise NotFoundError(f"User {user_id} not found")
         return user
+
+    async def ban_user(self, target_user_id: int, admin_user: User, reason: str) -> User:
+        """
+        Ban a user (admin only).
+
+        Args:
+            target_user_id: ID of user to ban
+            admin_user: Admin user performing the ban
+            reason: Reason for the ban
+
+        Returns:
+            Updated user with ban information
+
+        Raises:
+            AdminRequiredError: If user is not an admin
+            ValidationError: If admin tries to ban themselves
+            NotFoundError: If target user not found
+        """
+        from app.utils.admin_utils import require_admin
+        require_admin(admin_user)
+
+        # Prevent self-ban to avoid operational lockout
+        if target_user_id == admin_user.id:
+            raise ValidationError("Admins cannot ban themselves")
+
+        banned_user = await self.user_repository.ban_user(
+            user_id=target_user_id,
+            admin_id=admin_user.id,
+            reason=reason
+        )
+
+        logger.info(
+            "User banned",
+            extra={
+                "target_user_id": target_user_id,
+                "admin_id": admin_user.id,
+                "reason": reason
+            }
+        )
+
+        return banned_user
+
+    async def unban_user(self, target_user_id: int, admin_user: User) -> User:
+        """
+        Unban a user (admin only).
+
+        Args:
+            target_user_id: ID of user to unban
+            admin_user: Admin user performing the unban
+
+        Returns:
+            Updated user with ban removed
+
+        Raises:
+            AdminRequiredError: If user is not an admin
+            NotFoundError: If target user not found
+        """
+        from app.utils.admin_utils import require_admin
+        require_admin(admin_user)
+
+        unbanned_user = await self.user_repository.unban_user(user_id=target_user_id)
+
+        logger.info(
+            "User unbanned",
+            extra={
+                "target_user_id": target_user_id,
+                "admin_id": admin_user.id
+            }
+        )
+
+        return unbanned_user
+
+    async def get_all_users(
+        self,
+        admin_user: User,
+        skip: int = 0,
+        limit: int = 50
+    ) -> list[User]:
+        """
+        Get all users with pagination (admin only).
+
+        Args:
+            admin_user: Admin user requesting the list
+            skip: Number of records to skip
+            limit: Maximum records to return
+
+        Returns:
+            List of users
+
+        Raises:
+            AdminRequiredError: If user is not an admin
+        """
+        from app.utils.admin_utils import require_admin
+        require_admin(admin_user)
+
+        return await self.user_repository.get_all_users(skip=skip, limit=limit)

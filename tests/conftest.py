@@ -12,11 +12,13 @@ from app.repositories.postgres.category_repository import PostgresCategoryReposi
 from app.repositories.postgres.post_repository import PostgresPostRepository
 from app.repositories.postgres.reply_repository import PostgresReplyRepository
 from app.repositories.postgres.vote_repository import PostgresVoteRepository
+from app.repositories.postgres.audit_log_repository import PostgresAuditLogRepository
 from app.services.user_service import UserService
 from app.services.category_service import CategoryService
 from app.services.post_service import PostService
 from app.services.reply_service import ReplyService
 from app.services.vote_service import VoteService
+from app.services.audit_service import AuditService
 
 
 @pytest.fixture(scope="session")
@@ -106,3 +108,15 @@ def vote_repository(
 def vote_service(vote_repository: PostgresVoteRepository) -> VoteService:
     """Create a vote service instance for tests"""
     return VoteService(vote_repository)
+
+
+@pytest.fixture
+def audit_log_repository(db_adapter: PostgresDatabaseAdapter) -> PostgresAuditLogRepository:
+    """Create an audit log repository instance for tests"""
+    return PostgresAuditLogRepository(db_adapter)
+
+
+@pytest.fixture
+def audit_service(audit_log_repository: PostgresAuditLogRepository) -> AuditService:
+    """Create an audit service instance for tests"""
+    return AuditService(audit_log_repository)

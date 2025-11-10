@@ -7,6 +7,7 @@ from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
 
 from app.models.post_models import Post, PostCreate, PostUpdate
+from app.models.user_models import User
 from app.repositories.postgres.postgres_adapter import PostgresDatabaseAdapter
 from app.repositories.postgres.postgres_tables import PostsTable, UsersTable, CategoriesTable, RepliesTable
 from app.exceptions import NotFoundError, AuthenticationError
@@ -170,7 +171,7 @@ class PostgresPostRepository:
     async def update_post(
         self,
         post_id: int,
-        user_id: int,
+        user: "User",
         post_data: PostUpdate
     ) -> Post:
         """
@@ -178,7 +179,7 @@ class PostgresPostRepository:
 
         Args:
             post_id: Post ID to update
-            user_id: ID of user attempting update (for authorization)
+            user: User object attempting update (for authorization)
             post_data: Post update data
 
         Returns:
@@ -186,7 +187,7 @@ class PostgresPostRepository:
 
         Raises:
             NotFoundError: If post not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
         async with self.db_adapter.session() as session:
             # Get existing post
@@ -198,9 +199,9 @@ class PostgresPostRepository:
             if not post:
                 raise NotFoundError(f"Post with ID {post_id} not found")
 
-            # Check authorization
-            if post.author_id != user_id:
-                raise AuthenticationError("You can only edit your own posts")
+            # Check authorization (author or admin)
+            if post.author_id != user.id and not user.is_admin:
+                raise AuthenticationError("You can only edit your own posts (unless admin)")
 
             # Update fields
             if post_data.title is not None:
@@ -215,22 +216,22 @@ class PostgresPostRepository:
 
             logger.info(
                 "Updated post",
-                extra={"post_id": post_id, "user_id": user_id}
+                extra={"post_id": post_id, "user_id": user.id, "is_admin": user.is_admin}
             )
 
             return Post.model_validate(post)
 
-    async def delete_post(self, post_id: int, user_id: int) -> None:
+    async def delete_post(self, post_id: int, user: "User") -> None:
         """
         Delete a post.
 
         Args:
             post_id: Post ID to delete
-            user_id: ID of user attempting deletion (for authorization)
+            user: User object attempting deletion (for authorization)
 
         Raises:
             NotFoundError: If post not found
-            AuthenticationError: If user is not the author
+            AuthenticationError: If user is not the author or admin
         """
         async with self.db_adapter.session() as session:
             # Get existing post
@@ -242,15 +243,15 @@ class PostgresPostRepository:
             if not post:
                 raise NotFoundError(f"Post with ID {post_id} not found")
 
-            # Check authorization
-            if post.author_id != user_id:
-                raise AuthenticationError("You can only delete your own posts")
+            # Check authorization (author or admin)
+            if post.author_id != user.id and not user.is_admin:
+                raise AuthenticationError("You can only delete your own posts (unless admin)")
 
             await session.delete(post)
 
             logger.info(
                 "Deleted post",
-                extra={"post_id": post_id, "user_id": user_id}
+                extra={"post_id": post_id, "user_id": user.id, "is_admin": user.is_admin}
             )
 
     async def increment_vote_count(

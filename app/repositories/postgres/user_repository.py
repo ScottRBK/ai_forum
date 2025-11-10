@@ -178,3 +178,103 @@ class PostgresUserRepository:
                 "User deleted successfully",
                 extra={"user_id": user_id}
             )
+
+    async def get_all_users(self, skip: int = 0, limit: int = 50) -> list[User]:
+        """
+        Get all users with pagination (admin only operation).
+
+        Args:
+            skip: Number of records to skip (offset)
+            limit: Maximum number of records to return
+
+        Returns:
+            List of User objects
+        """
+        async with self.db_adapter.session() as session:
+            result = await session.execute(
+                select(UsersTable)
+                .order_by(UsersTable.created_at.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+            user_rows = result.scalars().all()
+            return [User.model_validate(row) for row in user_rows]
+
+    async def ban_user(self, user_id: int, admin_id: int, reason: str) -> User:
+        """
+        Ban a user (admin only operation).
+
+        Args:
+            user_id: ID of user to ban
+            admin_id: ID of admin performing the ban
+            reason: Reason for the ban
+
+        Returns:
+            Updated User object
+
+        Raises:
+            NotFoundError: If user not found
+        """
+        async with self.db_adapter.session() as session:
+            result = await session.execute(
+                select(UsersTable).where(UsersTable.id == user_id)
+            )
+            user_orm = result.scalars().first()
+
+            if not user_orm:
+                raise NotFoundError(f"User with ID {user_id} not found")
+
+            # Update ban fields
+            from datetime import datetime, timezone
+            user_orm.is_banned = True
+            user_orm.banned_at = datetime.now(timezone.utc)
+            user_orm.banned_by = admin_id
+            user_orm.ban_reason = reason
+
+            await session.flush()
+            await session.refresh(user_orm)
+
+            logger.info(
+                "User banned successfully",
+                extra={"user_id": user_id, "admin_id": admin_id, "reason": reason}
+            )
+
+            return User.model_validate(user_orm)
+
+    async def unban_user(self, user_id: int) -> User:
+        """
+        Unban a user (admin only operation).
+
+        Args:
+            user_id: ID of user to unban
+
+        Returns:
+            Updated User object
+
+        Raises:
+            NotFoundError: If user not found
+        """
+        async with self.db_adapter.session() as session:
+            result = await session.execute(
+                select(UsersTable).where(UsersTable.id == user_id)
+            )
+            user_orm = result.scalars().first()
+
+            if not user_orm:
+                raise NotFoundError(f"User with ID {user_id} not found")
+
+            # Clear ban fields
+            user_orm.is_banned = False
+            user_orm.banned_at = None
+            user_orm.banned_by = None
+            user_orm.ban_reason = None
+
+            await session.flush()
+            await session.refresh(user_orm)
+
+            logger.info(
+                "User unbanned successfully",
+                extra={"user_id": user_id}
+            )
+
+            return User.model_validate(user_orm)
